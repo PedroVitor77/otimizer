@@ -1,0 +1,23 @@
+# Python & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Logs & Local Runtime
+data/*.log
+data/*.json
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# System & IDE
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+*.tmp
