@@ -300,47 +300,121 @@ code {
 /* ================= Dashboard ================= */
 .dash-grid {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 16px;
 }
-.chart-card { grid-column: 1 / span 2; }
-
-@media (max-width: 1320px) {
-  .dash-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .hero-card, .chart-card { grid-column: 1 / -1; }
-}
-
 .hero-card {
+  grid-column: 1 / -1;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 20px;
-  padding: 24px;
+  gap: 28px;
+  padding: 24px 28px;
   background:
     radial-gradient(420px 260px at 82% 40%, rgba(155, 226, 45, 0.16), transparent 70%),
     linear-gradient(160deg, #181b17 0%, #0f110f 100%);
   overflow: hidden;
+  container-type: inline-size;
+  container-name: hero;
 }
 .hero-greet { font-size: 13px; color: var(--ink-2); font-weight: 600; }
 .hero-title { font-size: 28px; font-weight: 800; letter-spacing: -0.6px; margin-top: 4px; }
-.hero-sub { font-size: 13px; color: var(--ink-2); margin-top: 8px; max-width: 42ch; line-height: 1.5; }
+.hero-sub { font-size: 13px; color: var(--ink-2); margin-top: 8px; max-width: 52ch; line-height: 1.5; }
 
-.hero-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 20px; }
+.hero-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
 .tile {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 12px 14px;
   backdrop-filter: blur(6px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: transform 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
 }
-.tile .icon-dot { margin-bottom: 10px; }
-.tile-label { font-size: 12px; color: var(--ink-2); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tile-value { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; margin-top: 2px; font-variant-numeric: tabular-nums; }
-.tile-value small { font-size: 13px; color: var(--ink-2); font-weight: 700; margin-left: 2px; }
-.tile-status { font-size: 12px; font-weight: 700; margin-top: 2px; color: var(--ink-3); }
+.tile:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(155, 226, 45, 0.35);
+  transform: translateY(-2px);
+}
+.tile-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.tile-head .icon-dot {
+  margin-bottom: 0;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+}
+.tile-head .icon-dot svg {
+  width: 14px;
+  height: 14px;
+}
+.tile-label {
+  font-size: 11px;
+  color: var(--ink-2);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tile-value {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  line-height: 1.1;
+}
+.tile-value small {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  font-weight: 700;
+}
+.tile-status {
+  font-size: 11.5px;
+  font-weight: 700;
+  margin-top: 5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .tile-status.ok { color: var(--lime); }
 .tile-status.warn { color: var(--warn); }
 .tile-status.bad { color: var(--bad); }
+
+@container hero (max-width: 780px) {
+  .hero-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+}
+
+@container hero (max-width: 520px) {
+  .hero-card {
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
+  .hero-score {
+    margin-top: 14px;
+  }
+}
 
 .hero-score { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; }
 .score-ring-wrap { position: relative; width: 172px; height: 172px; }
@@ -767,10 +841,16 @@ input:focus-visible + .slider { outline: 2px solid var(--lime); outline-offset: 
   .grid-4 { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 1060px) {
+  .dash-grid { grid-template-columns: 1fr; }
   .grid-3, .grid-2 { grid-template-columns: 1fr; }
-  .hero-tiles { grid-template-columns: repeat(2, 1fr); }
   .sidebar { width: 210px; }
   .hero-card { grid-template-columns: 1fr; }
+}
+@media (max-width: 768px) {
+  .sidebar { width: 72px; padding: 12px 8px; }
+  .sidebar-logo span, .nav-item span, .sidebar-footer { display: none; }
+  .nav-item { justify-content: center; padding: 10px; }
+  .content-scroll { padding: 14px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
