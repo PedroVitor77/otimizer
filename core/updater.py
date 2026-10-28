@@ -62,18 +62,20 @@ def _get_auth_token() -> Optional[str]:
         pass
 
     # Try gh auth token from GitHub CLI
-    try:
-        res = subprocess.run(
-            ["gh", "auth", "token"],
-            capture_output=True,
-            text=True,
-            timeout=2,
-            creationflags=subprocess.CREATE_NO_WINDOW,
-        )
-        if res.returncode == 0 and res.stdout.strip().startswith("gh"):
-            return res.stdout.strip()
-    except Exception:
-        pass
+    gh_candidates = ["gh", r"C:\Program Files\GitHub CLI\gh.exe"]
+    for gh_cmd in gh_candidates:
+        try:
+            res = subprocess.run(
+                [gh_cmd, "auth", "token"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            if res.returncode == 0 and res.stdout.strip().startswith("gh"):
+                return res.stdout.strip()
+        except Exception:
+            continue
 
     return None
 
@@ -116,15 +118,18 @@ def check_for_updates() -> Dict[str, Any]:
 
     download_url = None
     file_size = 0
+    token = _get_auth_token()
     for asset in data.get("assets", []):
         name = asset.get("name", "")
-        if name.lower().endswith(".exe") and "setup" in name.lower():
-            download_url = asset.get("browser_download_url")
+        if name.lower().endswith(".exe"):
+            # For private repositories with token, use API asset URL with Accept header
+            if token and asset.get("url"):
+                download_url = asset.get("url")
+            else:
+                download_url = asset.get("browser_download_url")
             file_size = asset.get("size", 0)
-            break
-        elif name.lower().endswith(".exe"):
-            download_url = asset.get("browser_download_url")
-            file_size = asset.get("size", 0)
+            if "setup" in name.lower():
+                break
 
     has_update = is_newer_version(tag_name, CURRENT_VERSION)
 
@@ -162,7 +167,10 @@ def start_download_update(download_url: str) -> Dict[str, Any]:
         temp_dir = Path(tempfile.gettempdir())
         target_file = temp_dir / "PulsePC_Setup_Update.exe"
 
-        req = urllib.request.Request(download_url, headers={"User-Agent": "PulsePC-Updater"})
+        headers = {"User-Agent": "PulsePC-Updater"}
+        if "api.github.com" in download_url:
+            headers["Accept"] = "application/octet-stream"
+        req = urllib.request.Request(download_url, headers=headers)
         token = _get_auth_token()
         if token:
             req.add_header("Authorization", f"token {token}")
