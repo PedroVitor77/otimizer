@@ -872,6 +872,7 @@ function formatBytesJs(b) {
   while (b >= 1024 && i < units.length - 1) { b /= 1024; i++; }
   return i === 0 ? `${Math.round(b)} B` : `${b.toFixed(1)} ${units[i]}`;
 }
+const formatBytes = formatBytesJs;
 
 // ================= LARGE FILES SCANNER =================
 async function loadScannerPresets() {
@@ -2080,7 +2081,7 @@ function updateLeftoversSelectedTotal() {
 
   const sizeEl = document.getElementById("leftovers-total-size");
   if (sizeEl) {
-    sizeEl.textContent = `Total selecionado: ${formatBytes(totalBytes)} (${count} itens)`;
+    sizeEl.textContent = `Total selecionado: ${formatBytesJs(totalBytes)} (${count} itens)`;
   }
 
   const btnClean = document.getElementById("btn-confirm-clean-leftovers");
