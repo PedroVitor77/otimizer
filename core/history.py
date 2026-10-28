@@ -5,7 +5,20 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+import sys
+
+def get_data_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        local_app = os.environ.get("LOCALAPPDATA")
+        if local_app:
+            p = Path(local_app) / "PulsePC" / "data"
+            p.mkdir(parents=True, exist_ok=True)
+            return p
+    p = Path(__file__).resolve().parent.parent / "data"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+DATA_DIR = get_data_dir()
 HISTORY_FILE = DATA_DIR / "history.json"
 
 # API routes run in a thread pool, so two actions finishing together must not interleave

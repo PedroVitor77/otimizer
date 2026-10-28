@@ -8,10 +8,16 @@ import time
 from typing import Any, Dict, List, Optional
 import webbrowser
 
-BASE_DIR = Path(__file__).resolve().parent
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    local_app = os.environ.get("LOCALAPPDATA")
+    LOG_DIR = Path(local_app) / "PulsePC" / "data" if local_app else Path(sys.executable).parent / "data"
+else:
+    BASE_DIR = Path(__file__).resolve().parent
+    LOG_DIR = BASE_DIR / "data"
+
 UI_DIR = BASE_DIR / "ui"
 ICON_PATH = BASE_DIR / "assets" / "pulsepc.ico"
-LOG_DIR = BASE_DIR / "data"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 # Hide console window if launched via python.exe directly, and set AppUserModelID for custom Taskbar icon
@@ -355,15 +361,19 @@ def api_elevate():
     if is_admin():
         return {"success": True, "message": "O programa já está sendo executado como Administrador."}
     try:
-        exe_launcher = BASE_DIR / "PulsePC.exe"
-        if exe_launcher.exists():
-            res = ctypes.windll.shell32.ShellExecuteW(None, "runas", str(exe_launcher), "", str(BASE_DIR), 1)
+        if getattr(sys, "frozen", False):
+            exe_path = sys.executable
+            res = ctypes.windll.shell32.ShellExecuteW(None, "runas", str(exe_path), "", str(Path(exe_path).parent), 1)
         else:
-            pyw = Path(sys.executable).with_name("pythonw.exe")
-            target_py = str(pyw) if pyw.exists() else sys.executable
-            script_path = os.path.abspath(__file__)
-            params = f'"{script_path}"'
-            res = ctypes.windll.shell32.ShellExecuteW(None, "runas", target_py, params, str(BASE_DIR), 1)
+            exe_launcher = BASE_DIR / "PulsePC.exe"
+            if exe_launcher.exists():
+                res = ctypes.windll.shell32.ShellExecuteW(None, "runas", str(exe_launcher), "", str(BASE_DIR), 1)
+            else:
+                pyw = Path(sys.executable).with_name("pythonw.exe")
+                target_py = str(pyw) if pyw.exists() else sys.executable
+                script_path = os.path.abspath(__file__)
+                params = f'"{script_path}"'
+                res = ctypes.windll.shell32.ShellExecuteW(None, "runas", target_py, params, str(BASE_DIR), 1)
         if int(res) > 32:
             threading.Timer(0.8, lambda: os._exit(0)).start()
             return {"success": True, "message": "Reiniciando como Administrador..."}

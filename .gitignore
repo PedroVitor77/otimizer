@@ -15,6 +15,12 @@ venv/
 env/
 ENV/
 
+# PyInstaller & Inno Setup
+build/
+dist/
+installer_output/
+*.spec.bak
+
 # System & IDE
 .vscode/
 .idea/
