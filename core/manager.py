@@ -290,16 +290,60 @@ def toggle_startup_item(item_id: str, enable: bool) -> Dict[str, Any]:
 
 
 # --- INSTALLED PROGRAMS / BLOATWARE ---
+UNINSTALL_REGISTRY_ROOTS = [
+    (
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+    ),
+    (
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+    ),
+    (
+        winreg.HKEY_CURRENT_USER,
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+    ),
+]
+
+
+def _extract_uninstaller_exe(uninstall_str: str) -> Optional[str]:
+    s = os.path.expandvars((uninstall_str or "").strip())
+    if not s:
+        return None
+    m = re.match(r'^"([^"]+)"', s)
+    if m:
+        cand = m.group(1).strip()
+    else:
+        m2 = re.match(r'^([a-zA-Z]:\\[^"]*?\.(?:exe|bat|cmd|msi))\b', s, re.IGNORECASE)
+        cand = m2.group(1).strip() if m2 else s.split()[0]
+    if ":" in cand or cand.startswith("\\\\"):
+        return cand
+    return None
+
+
+def _is_ghost_program(uninstall_str: str, install_location: str = "") -> bool:
+    exe_path = _extract_uninstaller_exe(uninstall_str)
+    if exe_path:
+        exe_name = Path(exe_path).name.lower()
+        if exe_name not in ("msiexec.exe", "rundll32.exe", "cmd.exe", "powershell.exe"):
+            if not Path(exe_path).exists():
+                return True
+    loc = os.path.expandvars((install_location or "").strip().strip('"'))
+    if loc and (":" in loc or loc.startswith("\\\\")):
+        if not Path(loc).exists():
+            if not exe_path or not Path(exe_path).exists():
+                return True
+    return False
+
+
 def get_installed_programs() -> List[Dict[str, Any]]:
-    uninstall_paths = [
-        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
-        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
-        (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
-    ]
     seen_names = set()
     programs: List[Dict[str, Any]] = []
 
-    for root, subkey in uninstall_paths:
+    for root, subkey, prefix in UNINSTALL_REGISTRY_ROOTS:
         try:
             with winreg.OpenKey(root, subkey, 0, winreg.KEY_READ) as k:
                 num_subkeys, _, _ = winreg.QueryInfoKey(k)
@@ -328,6 +372,7 @@ def get_installed_programs() -> List[Dict[str, Any]]:
                             seen_names.add(name)
                             publisher = str(_q("Publisher", "Desconhecido")).strip()
                             version = str(_q("DisplayVersion", "")).strip()
+                            install_loc = str(_q("InstallLocation", "")).strip()
                             size_kb = _q("EstimatedSize", 0)
                             try:
                                 size_bytes = int(size_kb) * 1024
@@ -338,6 +383,8 @@ def get_installed_programs() -> List[Dict[str, Any]]:
                             if len(install_date) == 8 and install_date.isdigit():
                                 install_date = f"{install_date[6:8]}/{install_date[4:6]}/{install_date[0:4]}"
 
+                            is_ghost = _is_ghost_program(uninstall_str, install_loc)
+
                             programs.append(
                                 {
                                     "name": name,
@@ -347,6 +394,10 @@ def get_installed_programs() -> List[Dict[str, Any]]:
                                     "size_formatted": format_bytes(size_bytes) if size_bytes > 0 else "N/D",
                                     "install_date": install_date or "--",
                                     "uninstall_string": uninstall_str,
+                                    "install_location": install_loc,
+                                    "is_ghost": is_ghost,
+                                    "registry_root": prefix.split("\\")[0],
+                                    "registry_subkey": f"{subkey}\\{sk_name}",
                                 }
                             )
                     except Exception:
@@ -363,9 +414,21 @@ def launch_uninstaller(uninstall_string: str, app_name: str = "") -> Dict[str, A
         return {"success": False, "message": "Comando de desinstalação vazio."}
     # Only run commands that the Windows registry actually lists as an uninstaller,
     # never an arbitrary string sent by the client.
-    known = {p["uninstall_string"] for p in get_installed_programs()}
-    if uninstall_string not in known:
+    programs = get_installed_programs()
+    matched = next((p for p in programs if p["uninstall_string"] == uninstall_string), None)
+    if not matched:
         return {"success": False, "message": "Desinstalador não encontrado no registro do Windows. Atualize a lista e tente de novo."}
+
+    if matched.get("is_ghost"):
+        return {
+            "success": False,
+            "ghost_entry": True,
+            "message": (
+                f"Os arquivos de '{app_name or matched['name']}' já foram apagados do disco "
+                f"(desinstalador inexistente). Use o Deep Clean para remover esse registro fantasma!"
+            ),
+        }
+
     try:
         subprocess.Popen(uninstall_string, shell=True)
         record_action(
@@ -381,15 +444,14 @@ def launch_uninstaller(uninstall_string: str, app_name: str = "") -> Dict[str, A
         return {"success": False, "message": f"Erro ao abrir desinstalador: {str(e)}"}
 
 
-
-
 # --- DEEP CLEAN / LEFTOVER SCANNER (Revo Uninstaller style) ---
 STOPWORDS_LEFTOVERS = {
     "corporation", "corp", "inc", "ltd", "gmbh", "software", "system",
     "installer", "uninstaller", "edition", "x64", "x86", "win64", "win32",
     "setup", "client", "desktop", "application", "app", "community",
     "professional", "release", "update", "updater", "service", "services",
-    "microsoft", "windows", "for", "the", "and", "version", "portable"
+    "microsoft", "windows", "for", "the", "and", "version", "portable",
+    "desconhecido", "unknown",
 }
 
 GENERIC_WORDS_LEFTOVERS = {
@@ -409,14 +471,14 @@ PROTECTED_NAMES_LEFTOVERS = {
 
 
 def _extract_leftover_keywords(app_name: str, publisher: Optional[str] = None) -> List[str]:
-    clean = re.sub(r"[\(\)\[\]\{\}\-_,\.]", " ", (app_name or "").lower())
+    clean = re.sub(r"[\(\)\[\]\{\}\-_,\.:\;/\\]", " ", (app_name or "").lower())
     clean = re.sub(r"\bv?\d+(\.\d+)*\b", " ", clean)
     words = [
         w for w in clean.split()
         if len(w) >= 3 and w not in STOPWORDS_LEFTOVERS and w not in GENERIC_WORDS_LEFTOVERS
     ]
     if publisher:
-        clean_pub = re.sub(r"[\(\)\[\]\{\}\-_,\.]", " ", publisher.lower())
+        clean_pub = re.sub(r"[\(\)\[\]\{\}\-_,\.:\;/\\]", " ", publisher.lower())
         pub_words = [
             w for w in clean_pub.split()
             if len(w) >= 4 and w not in STOPWORDS_LEFTOVERS and w not in GENERIC_WORDS_LEFTOVERS
@@ -556,13 +618,15 @@ def scan_app_leftovers(app_name: str, publisher: Optional[str] = None) -> Dict[s
         except Exception:
             continue
 
-    # 3. Search Windows Registry
+    # 3. Search Windows Registry (Software + Orphan/Matching Uninstall Keys)
     registry_roots = [
         (winreg.HKEY_CURRENT_USER, r"Software", "HKCU\\Software"),
         (winreg.HKEY_LOCAL_MACHINE, r"Software", "HKLM\\Software"),
         (winreg.HKEY_LOCAL_MACHINE, r"Software\WOW6432Node", "HKLM\\Software\\WOW6432Node"),
     ]
-    found_keys: List[Dict[str, str]] = []
+    found_keys: List[Dict[str, Any]] = []
+    seen_reg = set()
+
     for root, subkey, prefix in registry_roots:
         try:
             with winreg.OpenKey(root, subkey, 0, winreg.KEY_READ) as k:
@@ -573,11 +637,57 @@ def scan_app_leftovers(app_name: str, publisher: Optional[str] = None) -> Dict[s
                     if s_lower in PROTECTED_NAMES_LEFTOVERS or s_lower in ("classes", "policies", "clients", "registeredapplications"):
                         continue
                     if _matches_keywords(sname):
-                        found_keys.append({
-                            "display": f"{prefix}\\{sname}",
-                            "root_name": prefix.split("\\")[0],
-                            "subkey": f"{subkey}\\{sname}",
-                        })
+                        disp = f"{prefix}\\{sname}"
+                        if disp not in seen_reg:
+                            seen_reg.add(disp)
+                            found_keys.append({
+                                "display": disp,
+                                "root_name": prefix.split("\\")[0],
+                                "subkey": f"{subkey}\\{sname}",
+                            })
+        except Exception:
+            continue
+
+    # 4. Also check Windows Uninstall registry keys for orphan/ghost entries or exact app match
+    target_app_low = (app_name or "").strip().lower()
+    for root, subkey, prefix in UNINSTALL_REGISTRY_ROOTS:
+        try:
+            with winreg.OpenKey(root, subkey, 0, winreg.KEY_READ) as k:
+                subkeys_cnt, _, _ = winreg.QueryInfoKey(k)
+                for i in range(subkeys_cnt):
+                    try:
+                        sname = winreg.EnumKey(k, i)
+                        with winreg.OpenKey(k, sname, 0, winreg.KEY_READ) as sk:
+                            try:
+                                disp_name = str(winreg.QueryValueEx(sk, "DisplayName")[0]).strip()
+                            except Exception:
+                                disp_name = ""
+                            try:
+                                u_str = str(winreg.QueryValueEx(sk, "UninstallString")[0]).strip()
+                            except Exception:
+                                u_str = ""
+                            try:
+                                i_loc = str(winreg.QueryValueEx(sk, "InstallLocation")[0]).strip()
+                            except Exception:
+                                i_loc = ""
+
+                            is_exact = bool(target_app_low and disp_name.lower() == target_app_low)
+                            is_kw_match = _matches_keywords(disp_name or sname)
+                            is_ghost = _is_ghost_program(u_str, i_loc) if u_str else False
+
+                            if (is_exact and is_ghost) or (is_kw_match and is_ghost) or is_exact:
+                                disp = f"{prefix}\\{sname}"
+                                if disp not in seen_reg:
+                                    seen_reg.add(disp)
+                                    found_keys.append({
+                                        "display": disp,
+                                        "root_name": prefix.split("\\")[0],
+                                        "subkey": f"{subkey}\\{sname}",
+                                        "is_uninstall_entry": True,
+                                        "is_ghost": is_ghost,
+                                    })
+                    except Exception:
+                        continue
         except Exception:
             continue
 
@@ -602,13 +712,18 @@ def _delete_reg_key_recursive(root_key, subkey_path: str) -> bool:
             while True:
                 try:
                     child = winreg.EnumKey(k, 0)
-                    _delete_reg_key_recursive(root_key, f"{subkey_path}\\{child}")
+                    if not _delete_reg_key_recursive(root_key, f"{subkey_path}\\{child}"):
+                        break
                 except OSError:
                     break
         winreg.DeleteKey(root_key, subkey_path)
         return True
     except Exception:
-        return False
+        try:
+            winreg.DeleteKeyEx(root_key, subkey_path, winreg.KEY_WOW64_64KEY, 0)
+            return True
+        except Exception:
+            return False
 
 
 def clean_app_leftovers(
@@ -654,13 +769,20 @@ def clean_app_leftovers(
     for rk in registry_keys:
         root_name = rk.get("root_name", "")
         subkey = rk.get("subkey", "")
-        if not subkey or "microsoft" in subkey.lower() or "windows" in subkey.lower():
+        if not subkey:
+            continue
+        sub_low = subkey.lower().strip("\\")
+        is_uninstall_subkey = (
+            sub_low.startswith("software\\microsoft\\windows\\currentversion\\uninstall\\")
+            or sub_low.startswith("software\\wow6432node\\microsoft\\windows\\currentversion\\uninstall\\")
+        ) and sub_low.count("\\") >= 5
+        if not is_uninstall_subkey and ("microsoft" in sub_low or "windows" in sub_low):
             continue
         root = winreg.HKEY_CURRENT_USER if root_name == "HKCU" else winreg.HKEY_LOCAL_MACHINE
         if _delete_reg_key_recursive(root, subkey):
             removed_keys += 1
         else:
-            errors.append(f"Chave {rk.get('display', subkey)}: Permissão negada ou chave não encontrada")
+            errors.append(f"Chave {rk.get('display', subkey)}: Permissão negada (execute como Administrador) ou chave não encontrada")
 
     total_removed = removed_folders + removed_files + removed_keys
     if total_removed > 0:
@@ -676,7 +798,7 @@ def clean_app_leftovers(
         )
 
     return {
-        "success": True,
+        "success": total_removed > 0 or len(errors) == 0,
         "removed_folders": removed_folders,
         "removed_files": removed_files,
         "removed_keys": removed_keys,

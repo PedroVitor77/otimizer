@@ -1846,15 +1846,20 @@ function renderProgramsTable() {
 
   tbody.innerHTML = filtered.map((p, idx) => `
     <tr>
-      <td style="font-weight:600;">${escapeHtml(p.name)}</td>
+      <td style="font-weight:600;">
+        ${escapeHtml(p.name)}
+        ${p.is_ghost ? `<span class="badge badge-amber" style="margin-left:6px; font-size:10px;" title="A pasta original deste programa já foi apagada do disco, restando apenas este registro órfão no Windows.">👻 Registro Fantasma</span>` : ""}
+      </td>
       <td style="color:var(--text-secondary);">${escapeHtml(p.publisher)}</td>
       <td><span class="badge badge-cyan">${escapeHtml(p.version || "--")}</span></td>
-      <td style="font-weight:700; color:${p.size_bytes > 500 * 1024 * 1024 ? 'var(--warn)' : 'var(--text-primary)'};">${escapeHtml(p.size_formatted)}</td>
+      <td style="font-weight:700; color:${p.is_ghost ? 'var(--text-secondary)' : (p.size_bytes > 500 * 1024 * 1024 ? 'var(--warn)' : 'var(--text-primary)')};" title="${p.is_ghost ? 'Tamanho gravado no Registro antes da pasta ser apagada (não ocupa espaço real no disco)' : ''}">
+        ${escapeHtml(p.size_formatted)}${p.is_ghost ? ` <span style="font-size:11px; font-weight:500; opacity:0.75;">(órfão)</span>` : ""}
+      </td>
       <td style="color:var(--text-secondary); font-size:12px;">${escapeHtml(p.install_date)}</td>
       <td style="text-align:right;">
         <div style="display:flex; gap:6px; justify-content:flex-end;">
           <button class="btn btn-sm btn-secondary" title="Caçar pastas órfãs e chaves de registro residuais" onclick="scanLeftoversForApp(${JSON.stringify(p.name).replace(/"/g, '&quot;')}, ${JSON.stringify(p.publisher).replace(/"/g, '&quot;')})">Deep Clean</button>
-          <button class="btn btn-sm btn-danger" onclick="uninstallProgram(${JSON.stringify(p.uninstall_string).replace(/"/g, '&quot;')}, ${JSON.stringify(p.name).replace(/"/g, '&quot;')})">Desinstalar</button>
+          <button class="btn btn-sm btn-danger" onclick="uninstallProgram(${JSON.stringify(p.uninstall_string).replace(/"/g, '&quot;')}, ${JSON.stringify(p.name).replace(/"/g, '&quot;')})">${p.is_ghost ? "Remover Órfão" : "Desinstalar"}</button>
         </div>
       </td>
     </tr>
@@ -1863,6 +1868,20 @@ function renderProgramsTable() {
 
 async function uninstallProgram(uninstallString, appName) {
   const prog = currentPrograms.find(p => p.uninstall_string === uninstallString);
+  if (prog && prog.is_ghost) {
+    const cleanGhost = await confirmDialog({
+      title: `Registro Fantasma: ${appName}`,
+      message: "A pasta e o desinstalador deste programa já foram apagados do seu disco anteriormente, restando apenas uma entrada fantasma no Registro do Windows.",
+      items: [{ name: appName, detail: "Não ocupa espaço real no disco" }],
+      note: "Deseja abrir o Deep Clean agora para remover essa entrada órfã da lista de programas do Windows?",
+      confirmLabel: "🧹 Limpar Registro Fantasma"
+    });
+    if (cleanGhost) {
+      scanLeftoversForApp(appName, prog.publisher || "");
+    }
+    return;
+  }
+
   const ok = await confirmDialog({
     title: `Desinstalar ${appName}?`,
     message: "Vamos abrir o desinstalador oficial do programa:",
@@ -1879,6 +1898,11 @@ async function uninstallProgram(uninstallString, appName) {
     });
     const data = await res.json();
     showToast(data.message, data.success ? "success" : "error");
+
+    if (data.ghost_entry) {
+      scanLeftoversForApp(appName, prog ? prog.publisher : "");
+      return;
+    }
 
     if (data.success) {
       setTimeout(async () => {
@@ -1997,16 +2021,20 @@ async function scanLeftoversForApp(appName, publisher = "") {
     if (data.registry_keys && data.registry_keys.length > 0) {
       itemsHtml += `<div style="font-size:11px; text-transform:uppercase; letter-spacing:0.8px; color:var(--text-secondary); font-weight:700; margin-top:10px;">Chaves Residuais no Registro do Windows (${data.registry_keys.length})</div>`;
       data.registry_keys.forEach((rk, idx) => {
+        const subDesc = rk.is_uninstall_entry
+          ? "Entrada fantasma na lista de Programas Instalados do Windows"
+          : "Chave de configuração órfã";
+        const badgeLbl = rk.is_uninstall_entry ? "👻 Registro Fantasma" : "Registro";
         itemsHtml += `
           <label style="display:flex; justify-content:space-between; align-items:center; padding:8px 12px; background:rgba(255,255,255,0.03); border:1px solid var(--border-color); border-radius:8px; cursor:pointer;">
             <div style="display:flex; align-items:center; gap:10px; min-width:0;">
               <input type="checkbox" class="leftover-reg-cb" data-idx="${idx}" checked onchange="updateLeftoversSelectedTotal()">
               <div style="min-width:0; overflow:hidden;">
                 <div style="font-weight:600; font-size:12.5px;">🔑 ${escapeHtml(rk.display)}</div>
-                <div style="font-size:11px; color:var(--text-secondary);">Chave de configuração órfã</div>
+                <div style="font-size:11px; color:var(--text-secondary);">${subDesc}</div>
               </div>
             </div>
-            <span class="badge badge-amber" style="font-size:10px;">Registro</span>
+            <span class="badge badge-amber" style="font-size:10px; flex-shrink:0;">${badgeLbl}</span>
           </label>
         `;
       });
@@ -2106,10 +2134,12 @@ async function cleanSelectedLeftovers() {
     const data = await res.json();
     closeLeftoversModal();
 
-    if (data.success) {
+    if (data.success && (data.removed_folders + data.removed_files + data.removed_keys) > 0) {
       showToast(`Deep Clean concluído! ${data.cleaned_formatted} recuperados (${data.removed_folders + data.removed_files} itens e ${data.removed_keys} chaves).`, "success");
       await loadHistoryStats();
       await loadInstalledPrograms();
+    } else if (data.errors && data.errors.length > 0) {
+      showToast(data.errors[0], "error");
     } else {
       showToast("Não foi possível eliminar algumas sobras.", "error");
     }
