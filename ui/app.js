@@ -50,6 +50,7 @@ function switchTab(tabId) {
     loadProcesses();
   } else if (tabId === "tab-repair") {
     loadHardwareSpecs();
+  setTimeout(() => checkUpdates(true), 3500);
     loadHistoryStats();
   }
 }
@@ -1670,8 +1671,134 @@ window.addEventListener("DOMContentLoaded", async () => {
   loadScannerPresets();
   loadHistoryStats();
   loadHardwareSpecs();
+  setTimeout(() => checkUpdates(true), 3500);
 });
 
 window.addEventListener("resize", drawStrip);
 // Canvases inside a hidden tab have no size; redraw when the dashboard comes back.
 document.querySelector('.nav-item[data-tab="tab-dashboard"]').addEventListener("click", () => requestAnimationFrame(pollMetrics));
+
+
+// ================= UPDATER MODULE =================
+let pendingUpdate = null;
+let updatePollTimer = null;
+
+async function checkUpdates(silent = true) {
+  const btnSidebar = document.getElementById("btn-check-update-sidebar");
+  if (!silent && btnSidebar) {
+    btnSidebar.disabled = true;
+    btnSidebar.textContent = "...";
+  }
+
+  try {
+    const res = await fetch("/api/updater/check");
+    const data = await res.json();
+
+    const versionTag = document.getElementById("sidebar-version-tag");
+    if (versionTag && data.current_version) {
+      versionTag.textContent = `v${data.current_version}`;
+    }
+
+    if (data.has_update) {
+      pendingUpdate = data;
+      const banner = document.getElementById("update-banner");
+      if (banner) {
+        banner.style.display = "flex";
+        document.getElementById("update-title").textContent = `Nova versão ${data.tag_name || data.latest_version} disponível!`;
+        document.getElementById("update-desc").textContent = `Versão atual: v${data.current_version} • Novos recursos e melhorias prontos para instalação.`;
+      }
+      if (!silent) {
+        showToast(`Nova versão ${data.tag_name || data.latest_version} encontrada!`, "info");
+      }
+    } else {
+      if (!silent) {
+        showToast(`Você já está na versão mais recente (v${data.current_version || "1.0.0"})!`, "success");
+      }
+    }
+  } catch (e) {
+    if (!silent) {
+      showToast("Não foi possível verificar atualizações no momento.", "error");
+    }
+  } finally {
+    if (!silent && btnSidebar) {
+      btnSidebar.disabled = false;
+      btnSidebar.textContent = "Verificar";
+    }
+  }
+}
+
+function checkUpdatesManually() {
+  checkUpdates(false);
+}
+
+function dismissUpdateBanner() {
+  const banner = document.getElementById("update-banner");
+  if (banner) banner.style.display = "none";
+}
+
+async function startUpdateProcess() {
+  if (!pendingUpdate || !pendingUpdate.download_url) {
+    showToast("Link de download não disponível.", "error");
+    return;
+  }
+
+  const btn = document.getElementById("btn-start-update");
+  btn.disabled = true;
+  btn.textContent = "Baixando...";
+
+  const progressWrap = document.getElementById("update-progress-wrap");
+  const progressBar = document.getElementById("update-progress-bar");
+  const progressLabel = document.getElementById("update-progress-label");
+  if (progressWrap) progressWrap.style.display = "block";
+
+  try {
+    const res = await fetch("/api/updater/download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ download_url: pendingUpdate.download_url })
+    });
+    const d = await res.json();
+    if (!d.success && d.message !== "Download já em andamento.") {
+      showToast(d.message, "error");
+      btn.disabled = false;
+      btn.textContent = "Atualizar Agora";
+      return;
+    }
+
+    // Poll download status
+    if (updatePollTimer) clearInterval(updatePollTimer);
+    updatePollTimer = setInterval(async () => {
+      try {
+        const sRes = await fetch("/api/updater/status");
+        const st = await sRes.json();
+
+        if (st.status === "downloading") {
+          const pct = st.percent || 0;
+          if (progressBar) progressBar.style.width = `${pct}%`;
+          if (progressLabel) progressLabel.textContent = `Baixando... ${pct}%`;
+        } else if (st.status === "ready") {
+          clearInterval(updatePollTimer);
+          if (progressBar) progressBar.style.width = "100%";
+          if (progressLabel) progressLabel.textContent = "Instalação pronta! Iniciando...";
+          showToast("Download concluído! Iniciando o instalador...", "success");
+
+          // Apply update
+          setTimeout(async () => {
+            await fetch("/api/updater/apply", { method: "POST" });
+          }, 800);
+        } else if (st.status === "error") {
+          clearInterval(updatePollTimer);
+          showToast(`Erro ao baixar atualização: ${st.error_message || "Falha na conexão"}`, "error");
+          btn.disabled = false;
+          btn.textContent = "Tentar Novamente";
+        }
+      } catch (e) {
+        clearInterval(updatePollTimer);
+      }
+    }, 600);
+  } catch (e) {
+    showToast("Erro ao iniciar download da atualização.", "error");
+    btn.disabled = false;
+    btn.textContent = "Atualizar Agora";
+  }
+}

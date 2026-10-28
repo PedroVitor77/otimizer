@@ -68,6 +68,10 @@
         <span id="admin-status-text">Modo Administrador</span>
         <button id="btn-elevate" class="btn btn-sm btn-secondary" style="display:none;" onclick="elevateToAdmin()">Ativar</button>
       </div>
+      <div class="update-sidebar-box" style="margin-top: 8px; font-size: 11.5px; color: var(--text-secondary); display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: rgba(15,23,42,0.4); border-radius: 8px; border: 1px solid var(--border-color);">
+        <span>PulsePC <strong id="sidebar-version-tag">v1.0.0</strong></span>
+        <button class="btn btn-sm btn-secondary" style="padding: 2px 7px; font-size: 11px;" id="btn-check-update-sidebar" onclick="checkUpdatesManually()">Verificar</button>
+      </div>
     </div>
   </aside>
 
@@ -94,6 +98,27 @@
 
     <!-- Scrollable Views -->
     <main class="content-scroll">
+
+      <!-- Update Notification Banner -->
+      <div id="update-banner" style="display: none; margin-bottom: 20px; background: linear-gradient(90deg, rgba(6,182,212,0.18), rgba(139,92,246,0.18)); border: 1px solid rgba(56,189,248,0.4); border-radius: 12px; padding: 14px 20px; align-items: center; justify-content: space-between; gap: 14px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="width: 36px; height: 36px; border-radius: 8px; background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple)); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fff" stroke-width="2.2"><path d="M12 2v10M17 7l-5-5-5 5M2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          </div>
+          <div>
+            <div style="font-weight: 700; font-size: 14px; color: var(--text-primary);" id="update-title">Nova versão disponível!</div>
+            <div style="font-size: 12px; color: var(--text-secondary);" id="update-desc">Uma atualização está pronta para download.</div>
+            <div id="update-progress-wrap" style="display:none; margin-top: 6px; width: 220px;">
+              <div class="progress-bar" style="height: 6px; margin: 0;"><div class="progress-fill" id="update-progress-bar" style="width: 0%;"></div></div>
+              <span id="update-progress-label" style="font-size: 11px; color: var(--accent-cyan);">0%</span>
+            </div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <button class="btn btn-sm btn-secondary" onclick="dismissUpdateBanner()">Depois</button>
+          <button class="btn btn-sm btn-primary" id="btn-start-update" onclick="startUpdateProcess()">Atualizar Agora</button>
+        </div>
+      </div>
 
       <!-- ================= TAB 1: DASHBOARD DE SAÚDE ================= -->
       <section id="tab-dashboard" class="tab-pane active">

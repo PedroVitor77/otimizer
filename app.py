@@ -76,6 +76,12 @@ from core.scanner import (
     scan_duplicates,
     scan_large_files,
 )
+from core.updater import (
+    apply_update,
+    check_for_updates,
+    get_download_status,
+    start_download_update,
+)
 
 # Warm up psutil CPU percent so first call isn't 0.0
 psutil.cpu_percent(interval=None)
@@ -169,6 +175,10 @@ class GamesEstimateRequest(BaseModel):
     preset: str = "high"
 
 
+class UpdateDownloadRequest(BaseModel):
+    download_url: str
+
+
 # --- Routes ---
 @app.get("/")
 def serve_index():
@@ -190,6 +200,26 @@ def api_history():
     h = load_history()
     h["total_bytes_formatted"] = format_bytes(h.get("total_bytes_cleaned", 0))
     return h
+
+
+@app.get("/api/updater/check")
+def api_updater_check():
+    return check_for_updates()
+
+
+@app.post("/api/updater/download")
+def api_updater_download(req: UpdateDownloadRequest):
+    return start_download_update(req.download_url)
+
+
+@app.get("/api/updater/status")
+def api_updater_status():
+    return get_download_status()
+
+
+@app.post("/api/updater/apply")
+def api_updater_apply():
+    return apply_update()
 
 
 @app.post("/api/quick-boost")
