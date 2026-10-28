@@ -92,7 +92,7 @@ from core.updater import (
 psutil.cpu_percent(interval=None)
 psutil.cpu_percent(interval=None, percpu=True)
 
-app = FastAPI(title="PulsePC Otimizador Pro", version="1.3.5")
+app = FastAPI(title="PulsePC Otimizador Pro", version="1.4.0")
 
 LOCAL_HOSTNAMES = {"127.0.0.1", "localhost"}
 
@@ -534,6 +534,34 @@ def api_elevate():
         return {"success": False, "message": str(e)}
 
 
+@app.post("/api/window/minimize-to-tray")
+def api_window_minimize():
+    from core.tray import minimize_to_tray
+    minimize_to_tray()
+    return {"success": True}
+
+
+@app.post("/api/window/quit")
+def api_window_quit():
+    from core.tray import quit_app
+    quit_app()
+    return {"success": True}
+
+
+@app.get("/api/settings/tray")
+def api_get_tray_setting():
+    from core.tray import get_minimize_to_tray_setting
+    return {"minimize_to_tray": get_minimize_to_tray_setting()}
+
+
+@app.post("/api/settings/tray")
+def api_set_tray_setting(req: Dict[str, Any]):
+    from core.tray import set_minimize_to_tray_setting
+    enabled = bool(req.get("minimize_to_tray", True))
+    set_minimize_to_tray_setting(enabled)
+    return {"success": True, "minimize_to_tray": enabled}
+
+
 def find_free_port(preferred: int = 8765) -> int:
     for port in range(preferred, preferred + 50):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -622,6 +650,7 @@ def main():
     if not use_browser_only:
         try:
             import webview
+            from core.tray import setup_tray_and_window
 
             win_title = "PulsePC - Diagnostico de Saude e Otimizador Pro"
             window = webview.create_window(
@@ -634,6 +663,7 @@ def main():
                 text_select=False,
             )
             window.events.shown += lambda: threading.Thread(target=_set_win32_icon, args=(win_title,), daemon=True).start()
+            setup_tray_and_window(window, ICON_PATH)
             webview.start(icon=str(ICON_PATH) if ICON_PATH.exists() else None)
             return
         except Exception as e:

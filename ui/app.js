@@ -2514,6 +2514,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   pollGameBoosterStatus();
   setInterval(pollGameBoosterStatus, 3000);
   loadBenchmarkData();
+  loadTraySetting();
   setTimeout(() => checkUpdates(true), 3500);
 });
 
@@ -2643,5 +2644,51 @@ async function startUpdateProcess() {
     showToast("Erro ao iniciar download da atualização.", "error");
     btn.disabled = false;
     btn.textContent = "Atualizar Agora";
+  }
+}
+
+
+// ================= SYSTEM TRAY CONTROLS =================
+async function loadTraySetting() {
+  try {
+    const res = await fetch("/api/settings/tray");
+    if (res.ok) {
+      const data = await res.json();
+      const el = document.getElementById("setting-minimize-tray");
+      if (el) el.checked = data.minimize_to_tray !== false;
+    }
+  } catch (e) {}
+}
+
+async function toggleMinimizeToTray(enabled) {
+  try {
+    await fetch("/api/settings/tray", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ minimize_to_tray: enabled })
+    });
+    showToast(enabled ? "PulsePC minimizará para a bandeja ao fechar." : "PulsePC fechará totalmente ao clicar no X.", "info");
+  } catch (e) {
+    showToast("Erro ao salvar configuração.", "error");
+  }
+}
+
+async function minimizeWindowToTray() {
+  try {
+    await fetch("/api/window/minimize-to-tray", { method: "POST" });
+  } catch (e) {}
+}
+
+async function quitPulsePCApp() {
+  const ok = await confirmDialog({
+    title: "Encerrar PulsePC?",
+    message: "Tem certeza que deseja fechar o PulsePC por completo?",
+    note: "O monitoramento automático de jogos e o ícone da bandeja serão finalizados.",
+    confirmLabel: "Sim, Encerrar"
+  });
+  if (ok) {
+    try {
+      await fetch("/api/window/quit", { method: "POST" });
+    } catch (e) {}
   }
 }
