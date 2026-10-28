@@ -92,7 +92,7 @@ from core.updater import (
 psutil.cpu_percent(interval=None)
 psutil.cpu_percent(interval=None, percpu=True)
 
-app = FastAPI(title="PulsePC Otimizador Pro", version="1.3.1")
+app = FastAPI(title="PulsePC Otimizador Pro", version="1.3.2")
 
 LOCAL_HOSTNAMES = {"127.0.0.1", "localhost"}
 
