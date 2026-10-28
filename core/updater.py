@@ -10,7 +10,7 @@ import time
 from typing import Any, Dict, Optional, Tuple
 import urllib.request
 
-CURRENT_VERSION = "1.2.0"
+CURRENT_VERSION = "1.3.0"
 GITHUB_REPO = "PedroVitor77/otimizer"
 
 _download_lock = threading.Lock()

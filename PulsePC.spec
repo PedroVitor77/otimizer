@@ -34,6 +34,7 @@ hiddenimports = [
     'starlette.staticfiles',
     'starlette.responses',
     'pydantic',
+    'core.battery',
     'email.mime.text',
     'email.mime.multipart',
 ]

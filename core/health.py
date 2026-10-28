@@ -19,7 +19,83 @@ _last_disk_io = None
 # Cache for hardware specs & SMART status (expensive WMI calls)
 _hw_cache: Optional[Dict[str, Any]] = None
 _hw_cache_lock = threading.Lock()
-_gpu_live_cache: Dict[str, Any] = {"load": None, "temp": None, "mem_used_mb": None, "mem_total_mb": None, "last_check": 0.0}
+_gpu_live_cache: Dict[str, Any] = {"load": None, "temp": None, "mem_used_mb": None, "mem_total_mb": None, "name": None, "vendor": None, "last_check": 0.0}
+_gpu_static_info: Optional[Dict[str, Any]] = None
+_thermal_cache: Dict[str, Any] = {"temp": None, "last_check": 0.0}
+
+
+def _get_gpu_static_info() -> Dict[str, Any]:
+    global _gpu_static_info
+    if _gpu_static_info is not None:
+        return _gpu_static_info
+    info = {"name": "Placa de Vídeo", "vram_mb": None, "vendor": "Windows DirectX"}
+    try:
+        import winreg
+        base_path = r"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, base_path) as k:
+            num_subkeys = winreg.QueryInfoKey(k)[0]
+            for i in range(num_subkeys):
+                subkey_name = winreg.EnumKey(k, i)
+                if not subkey_name.isdigit():
+                    continue
+                try:
+                    with winreg.OpenKey(k, subkey_name) as sk:
+                        desc, _ = winreg.QueryValueEx(sk, "DriverDesc")
+                        vram_bytes = 0
+                        try:
+                            qw, _ = winreg.QueryValueEx(sk, "HardwareInformation.qwMemorySize")
+                            vram_bytes = int(qw)
+                        except Exception:
+                            try:
+                                mem, _ = winreg.QueryValueEx(sk, "HardwareInformation.MemorySize")
+                                vram_bytes = int.from_bytes(mem, "little") if isinstance(mem, bytes) else int(mem)
+                            except Exception:
+                                pass
+                        if desc and not ("Basic Display" in desc or "Remote" in desc):
+                            vendor = "AMD" if ("amd" in desc.lower() or "radeon" in desc.lower()) else (
+                                "NVIDIA" if ("nvidia" in desc.lower() or "geforce" in desc.lower()) else (
+                                    "Intel" if ("intel" in desc.lower() or "arc" in desc.lower() or "iris" in desc.lower()) else "Windows DirectX"
+                                )
+                            )
+                            info["name"] = desc
+                            info["vendor"] = vendor
+                            if vram_bytes > 0:
+                                info["vram_mb"] = round(vram_bytes / (1024 * 1024), 1)
+                            break
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    _gpu_static_info = info
+    return info
+
+
+def _query_acpi_thermal() -> Optional[float]:
+    global _thermal_cache
+    now = time.time()
+    if now - _thermal_cache["last_check"] < 4.0:
+        return _thermal_cache["temp"]
+    _thermal_cache["last_check"] = now
+    try:
+        ps_cmd = (
+            "$t = Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue | Select-Object -First 1 CurrentTemperature; "
+            "if ($t -and $t.CurrentTemperature) { [Math]::Round(($t.CurrentTemperature - 2732) / 10.0, 1) }"
+        )
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
+            capture_output=True,
+            text=True,
+            timeout=1.5,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            val = float(r.stdout.strip().replace(",", "."))
+            if 0 < val < 130:
+                _thermal_cache["temp"] = val
+                return val
+    except Exception:
+        pass
+    return _thermal_cache["temp"]
 
 
 def is_admin() -> bool:
@@ -73,39 +149,94 @@ def get_uptime_info() -> Dict[str, Any]:
     }
 
 
-def _query_nvidia_gpu() -> Dict[str, Any]:
+def _query_gpu_metrics() -> Dict[str, Any]:
+    global _gpu_live_cache, _hw_cache
+    if _gpu_live_cache.get("name") is None:
+        st = _get_gpu_static_info()
+        _gpu_live_cache["name"] = st.get("name")
+        _gpu_live_cache["vendor"] = st.get("vendor")
+        _gpu_live_cache["mem_total_mb"] = st.get("vram_mb")
+
     now = time.time()
-    if now - _gpu_live_cache["last_check"] < 3.0:
+    if now - _gpu_live_cache.get("last_check", 0.0) < 2.5 and _gpu_live_cache.get("load") is not None:
         return _gpu_live_cache
     _gpu_live_cache["last_check"] = now
+
+    # 1. Try nvidia-smi first (NVIDIA GeForce/RTX)
     nvidia_smi = shutil.which("nvidia-smi")
-    if not nvidia_smi:
-        return _gpu_live_cache
+    if nvidia_smi:
+        try:
+            res = subprocess.run(
+                [
+                    nvidia_smi,
+                    "--query-gpu=utilization.gpu,temperature.gpu,memory.used,memory.total,name",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                encoding="oem",
+                errors="replace",
+                timeout=1.5,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                line = res.stdout.strip().splitlines()[0]
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) >= 5:
+                    _gpu_live_cache["load"] = float(parts[0]) if parts[0].replace(".", "").isdigit() else None
+                    _gpu_live_cache["temp"] = float(parts[1]) if parts[1].replace(".", "").isdigit() else None
+                    _gpu_live_cache["mem_used_mb"] = float(parts[2]) if parts[2].replace(".", "").isdigit() else None
+                    _gpu_live_cache["mem_total_mb"] = float(parts[3]) if parts[3].replace(".", "").isdigit() else None
+                    _gpu_live_cache["name"] = parts[4]
+                    _gpu_live_cache["vendor"] = "NVIDIA"
+                    return _gpu_live_cache
+        except Exception:
+            pass
+
+    # 2. Universal Windows Performance Counters (AMD Radeon, Intel Arc/Iris, Qualcomm)
     try:
+        ps_cmd = (
+            "$m = Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory -ErrorAction SilentlyContinue; "
+            "$maxD = 0; "
+            "foreach ($x in $m) { if ($x.DedicatedUsage -gt $maxD) { $maxD = $x.DedicatedUsage } }; "
+            "$e = Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine -ErrorAction SilentlyContinue; "
+            "$s3d = 0; "
+            "foreach ($y in $e) { if ($y.Name -like '*3D*') { $s3d += $y.UtilizationPercentage } }; "
+            'Write-Output "$maxD,$([Math]::Min(100, $s3d))"'
+        )
         res = subprocess.run(
-            [
-                nvidia_smi,
-                "--query-gpu=utilization.gpu,temperature.gpu,memory.used,memory.total,name",
-                "--format=csv,noheader,nounits",
-            ],
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
             capture_output=True,
             text=True,
-            encoding="oem",
-            errors="replace",
-            timeout=1.5,
+            timeout=2,
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
-        if res.returncode == 0 and res.stdout.strip():
-            line = res.stdout.strip().splitlines()[0]
-            parts = [p.strip() for p in line.split(",")]
-            if len(parts) >= 5:
-                _gpu_live_cache["load"] = float(parts[0]) if parts[0].replace(".", "").isdigit() else None
-                _gpu_live_cache["temp"] = float(parts[1]) if parts[1].replace(".", "").isdigit() else None
-                _gpu_live_cache["mem_used_mb"] = float(parts[2]) if parts[2].replace(".", "").isdigit() else None
-                _gpu_live_cache["mem_total_mb"] = float(parts[3]) if parts[3].replace(".", "").isdigit() else None
-                _gpu_live_cache["name"] = parts[4]
+        if res.returncode == 0 and res.stdout.strip() and "," in res.stdout.strip():
+            parts = res.stdout.strip().split(",")
+            ded_bytes = int(parts[0]) if parts[0].isdigit() else 0
+            load_pct = int(parts[1]) if parts[1].isdigit() else 0
+
+            static_info = _get_gpu_static_info()
+            gpu_name = static_info.get("name") or "Placa de Vídeo"
+            vram_mb = static_info.get("vram_mb")
+            vendor = static_info.get("vendor") or "Windows DirectX"
+
+            if (not vram_mb or gpu_name == "Placa de Vídeo") and _hw_cache:
+                gpus = _hw_cache.get("gpus", [])
+                if gpus:
+                    gpu_name = gpus[0].get("Name", gpu_name)
+                    if not vram_mb and gpus[0].get("AdapterRAM"):
+                        vram_mb = round(int(gpus[0]["AdapterRAM"]) / (1024 * 1024), 1)
+
+            _gpu_live_cache["load"] = float(load_pct)
+            _gpu_live_cache["mem_used_mb"] = round(ded_bytes / (1024 * 1024), 1)
+            _gpu_live_cache["mem_total_mb"] = vram_mb
+            _gpu_live_cache["name"] = gpu_name
+            _gpu_live_cache["vendor"] = vendor
+            _gpu_live_cache["temp"] = _query_acpi_thermal()
     except Exception:
         pass
+
     return _gpu_live_cache
 
 
@@ -187,21 +318,15 @@ def get_realtime_metrics() -> Dict[str, Any]:
     disks = get_disks_info()
     uptime = get_uptime_info()
 
-    # Battery
-    battery_info = None
+    # Battery Health Diagnostics
     try:
-        bat = psutil.sensors_battery()
-        if bat is not None:
-            battery_info = {
-                "percent": round(bat.percent, 0),
-                "power_plugged": bool(bat.power_plugged),
-                "secsleft": bat.secsleft if bat.secsleft not in (psutil.POWER_TIME_UNLIMITED, psutil.POWER_TIME_UNKNOWN) else None,
-            }
+        from core.battery import get_battery_report
+        battery_info = get_battery_report()
     except Exception:
-        pass
+        battery_info = None
 
-    # GPU live metrics (if available)
-    gpu_live = _query_nvidia_gpu()
+    # GPU live metrics (NVIDIA, AMD Radeon, Intel Arc)
+    gpu_live = _query_gpu_metrics()
 
     # Calculate Health Score & Alerts
     alerts: List[Dict[str, str]] = []
@@ -307,6 +432,7 @@ def get_realtime_metrics() -> Dict[str, Any]:
             "cores_logical": psutil.cpu_count(logical=True) or 1,
             "freq_mhz": freq_mhz,
             "freq_max_mhz": freq_max_mhz,
+            "temp": _query_acpi_thermal(),
         },
         "ram": {
             "total_gb": round(vm.total / (1024**3), 1),

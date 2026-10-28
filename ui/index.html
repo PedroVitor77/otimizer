@@ -84,6 +84,11 @@
         <p id="topbar-subtitle">Saúde do PC em tempo real</p>
       </div>
       <div class="topbar-actions">
+        <div class="uptime-pill" id="battery-top-pill" style="display:none; cursor:pointer;" onclick="switchTab('tab-repair')" title="Ver saúde da bateria e energia">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="18" height="12" rx="2"/><path d="M22 10v4M6 12h4M8 10v4"/></svg>
+          <span id="battery-top-label">Bateria</span>
+          <strong id="battery-top-val">--%</strong>
+        </div>
         <div class="uptime-pill">
           <span class="live-dot"></span>
           <span>Ligado há</span>
@@ -145,10 +150,16 @@
                   <div class="tile-status" id="tile-ram-st">--</div>
                 </div>
                 <div class="tile">
-                  <span class="icon-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></span>
-                  <div class="tile-label" id="tile-disk-lbl">Disco</div>
-                  <div class="tile-value"><span id="tile-disk">--</span><small>%</small></div>
-                  <div class="tile-status" id="tile-disk-st">--</div>
+                  <span class="icon-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 010 20M12 2a15 15 0 000 20"/></svg></span>
+                  <div class="tile-label" id="tile-gpu-lbl">GPU</div>
+                  <div class="tile-value"><span id="tile-gpu">--</span><small>%</small></div>
+                  <div class="tile-status" id="tile-gpu-st">--</div>
+                </div>
+                <div class="tile" style="cursor:pointer;" onclick="switchTab('tab-repair')" title="Ver detalhes de energia e bateria">
+                  <span class="icon-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="18" height="12" rx="2"/><path d="M22 10v4M6 12h4M8 10v4"/></svg></span>
+                  <div class="tile-label" id="tile-bat-lbl">Energia</div>
+                  <div class="tile-value"><span id="tile-bat">--</span><small id="tile-bat-unit">%</small></div>
+                  <div class="tile-status" id="tile-bat-st">--</div>
                 </div>
               </div>
             </div>
@@ -245,14 +256,16 @@
 
           <div class="card">
             <div class="card-header">
-              <span class="card-title"><span class="icon-dot sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 010 20M12 2a15 15 0 000 20"/></svg></span>Rede e gráficos</span>
-              <span class="badge badge-green" id="net-status-badge">Online</span>
+              <span class="card-title"><span class="icon-dot sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 010 20M12 2a15 15 0 000 20"/></svg></span>Placa de Vídeo & Rede</span>
+              <span class="badge badge-green" id="gpu-vendor-badge">GPU</span>
             </div>
-            <div class="metric-big" id="net-down-val">0 KB/s</div>
-            <div class="metric-detail" id="net-up-detail">Upload: 0 KB/s</div>
+            <div class="metric-big" id="gpu-dash-load">0%</div>
+            <div class="metric-detail" id="gpu-dash-name">Placa de Vídeo</div>
+            <div class="progress-bar"><div class="progress-fill" id="gpu-bar" style="width:0%"></div></div>
             <div class="kv-list">
-              <div><span>Placa de vídeo</span><strong id="gpu-dash-load">--</strong></div>
-              <div><span>Temperatura / VRAM</span><strong id="gpu-dash-temp">--</strong></div>
+              <div><span>VRAM Dedicada</span><strong id="gpu-dash-vram">-- / -- MB</strong></div>
+              <div><span>Temperatura</span><strong id="gpu-dash-temp">--</strong></div>
+              <div><span>Rede (Down/Up)</span><strong id="net-io-detail">0 KB/s ↓ | 0 KB/s ↑</strong></div>
             </div>
           </div>
         </div>
@@ -850,6 +863,26 @@
             </div>
           </div>
           <div id="repair-output-box" style="display:none; margin-top:14px; padding:12px; background:var(--sunken); border-radius:8px; font-family:Consolas,monospace; font-size:12px; white-space:pre-wrap; color:var(--cobalt);"></div>
+        </div>
+
+        <!-- Battery Health & Energy Management (Notebooks e PCs) -->
+        <div class="card" style="margin-bottom: 20px;">
+          <div class="card-header">
+            <div>
+              <div class="card-title" style="display: flex; align-items: center; gap: 8px;">
+                <span class="icon-dot sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="18" height="12" rx="2"/><path d="M22 10v4M6 12h4M8 10v4"/></svg></span>
+                Saúde da Bateria & Gestão de Energia
+              </div>
+              <div class="card-subtitle">Desgaste das células químicas, capacidade original vs atual e autonomia estimada</div>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-sm btn-secondary" onclick="loadBatteryHealth(true)">Atualizar</button>
+              <button class="btn btn-sm btn-primary" onclick="openOfficialBatteryHtml()">Gerar Relatório HTML (Windows)</button>
+            </div>
+          </div>
+          <div id="battery-health-container">
+            <div style="padding:20px; text-align:center; color:var(--text-secondary);">Analisando sensores de energia e bateria...</div>
+          </div>
         </div>
 
         <!-- Hardware Specs & History -->

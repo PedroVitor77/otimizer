@@ -325,7 +325,7 @@ code {
 .hero-title { font-size: 28px; font-weight: 800; letter-spacing: -0.6px; margin-top: 4px; }
 .hero-sub { font-size: 13px; color: var(--ink-2); margin-top: 8px; max-width: 42ch; line-height: 1.5; }
 
-.hero-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 20px; }
+.hero-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 20px; }
 .tile {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--line);
@@ -768,6 +768,7 @@ input:focus-visible + .slider { outline: 2px solid var(--lime); outline-offset: 
 }
 @media (max-width: 1060px) {
   .grid-3, .grid-2 { grid-template-columns: 1fr; }
+  .hero-tiles { grid-template-columns: repeat(2, 1fr); }
   .sidebar { width: 210px; }
   .hero-card { grid-template-columns: 1fr; }
 }

@@ -92,7 +92,7 @@ from core.updater import (
 psutil.cpu_percent(interval=None)
 psutil.cpu_percent(interval=None, percpu=True)
 
-app = FastAPI(title="PulsePC Otimizador Pro", version="1.2.0")
+app = FastAPI(title="PulsePC Otimizador Pro", version="1.3.0")
 
 LOCAL_HOSTNAMES = {"127.0.0.1", "localhost"}
 
@@ -218,6 +218,18 @@ def serve_index():
 @app.get("/api/metrics")
 def api_metrics():
     return get_realtime_metrics()
+
+
+@app.get("/api/battery/report")
+def api_battery_report(force: bool = False):
+    from core.battery import get_battery_report
+    return get_battery_report(force_refresh=force)
+
+
+@app.post("/api/battery/generate-html")
+def api_battery_generate_html():
+    from core.battery import generate_battery_html_report
+    return generate_battery_html_report()
 
 
 @app.get("/api/hardware")

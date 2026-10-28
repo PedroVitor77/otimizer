@@ -52,7 +52,8 @@ function switchTab(tabId) {
     loadProcesses();
   } else if (tabId === "tab-repair") {
     loadHardwareSpecs();
-  setTimeout(() => checkUpdates(true), 3500);
+    loadBatteryHealth();
+    setTimeout(() => checkUpdates(true), 3500);
     loadHistoryStats();
   }
 }
@@ -377,8 +378,57 @@ async function pollMetrics() {
     const diskPct = mainDisk ? mainDisk.percent : 0;
     setTile("tile-cpu", cpuPct);
     setTile("tile-ram", ramPct);
-    setTile("tile-disk", diskPct);
-    document.getElementById("tile-disk-lbl").textContent = mainDisk ? `Disco ${mainDisk.mountpoint.replace(/\\$/, "")}` : "Disco";
+
+    // Tile GPU
+    if (d.gpu && d.gpu.load !== null && d.gpu.load !== undefined) {
+      setTile("tile-gpu", d.gpu.load);
+      const vramShort = (d.gpu.mem_used_mb && d.gpu.mem_total_mb)
+        ? `${(d.gpu.mem_used_mb / 1024).toFixed(1)}/${(d.gpu.mem_total_mb / 1024).toFixed(0)} GB`
+        : (d.gpu.vendor || "Ativa");
+      const gpuSt = document.getElementById("tile-gpu-st");
+      if (gpuSt) gpuSt.textContent = vramShort;
+    } else {
+      const gpuVal = document.getElementById("tile-gpu");
+      if (gpuVal) gpuVal.textContent = "--";
+      const gpuSt = document.getElementById("tile-gpu-st");
+      if (gpuSt) {
+        gpuSt.textContent = "Standby";
+        gpuSt.className = "tile-status ok";
+      }
+    }
+
+    // Tile Battery & Top Pill
+    const bat = d.battery;
+    const topPill = document.getElementById("battery-top-pill");
+    const tileBat = document.getElementById("tile-bat");
+    const tileBatUnit = document.getElementById("tile-bat-unit");
+    const tileBatSt = document.getElementById("tile-bat-st");
+    if (bat) {
+      if (bat.is_laptop && bat.has_battery) {
+        if (topPill) {
+          topPill.style.display = "flex";
+          const topLbl = document.getElementById("battery-top-label");
+          if (topLbl) topLbl.textContent = bat.power_plugged ? "Carregando" : "Bateria";
+          const topVal = document.getElementById("battery-top-val");
+          if (topVal) topVal.textContent = `${bat.percent_remaining}%`;
+        }
+        if (tileBat) tileBat.textContent = bat.percent_remaining;
+        if (tileBatUnit) tileBatUnit.textContent = "%";
+        if (tileBatSt) {
+          tileBatSt.textContent = bat.power_plugged ? "Tomada (AC)" : (bat.time_remaining_formatted || "Em uso");
+          tileBatSt.className = `tile-status ${bat.percent_remaining < 20 ? 'bad' : bat.percent_remaining < 40 ? 'warn' : 'ok'}`;
+        }
+      } else {
+        if (topPill) topPill.style.display = "none";
+        if (tileBat) tileBat.textContent = "AC";
+        if (tileBatUnit) tileBatUnit.textContent = "";
+        if (tileBatSt) {
+          tileBatSt.textContent = "Alimentação 100%";
+          tileBatSt.className = "tile-status ok";
+        }
+      }
+    }
+
     document.getElementById("ring-cpu").textContent = `${Math.round(cpuPct)}%`;
     document.getElementById("ring-ram").textContent = `${Math.round(ramPct)}%`;
     document.getElementById("ring-disk").textContent = `${Math.round(diskPct)}%`;
@@ -421,22 +471,64 @@ async function pollMetrics() {
       `).join("");
     }
 
-    // Network & GPU
+    // Network speeds
     const downKbps = d.io.net_down_kbps;
     const upKbps = d.io.net_up_kbps;
-    document.getElementById("net-down-val").textContent = downKbps >= 1024 ? `${(downKbps / 1024).toFixed(2)} MB/s` : `${downKbps.toFixed(0)} KB/s`;
-    const upFmt = upKbps >= 1024 ? `${(upKbps / 1024).toFixed(2)} MB/s` : `${upKbps.toFixed(0)} KB/s`;
-    document.getElementById("net-up-detail").textContent = `Upload: ${upFmt} | Total Rec.: ${d.io.net_total_recv_gb} GB`;
+    const downFmt = downKbps >= 1024 ? `${(downKbps / 1024).toFixed(1)} MB/s` : `${downKbps.toFixed(0)} KB/s`;
+    const upFmt = upKbps >= 1024 ? `${(upKbps / 1024).toFixed(1)} MB/s` : `${upKbps.toFixed(0)} KB/s`;
+    const netDetail = document.getElementById("net-io-detail");
+    if (netDetail) netDetail.textContent = `${downFmt} ↓ | ${upFmt} ↑`;
 
+    // GPU live metrics
     if (d.gpu && d.gpu.load !== null && d.gpu.load !== undefined) {
-      document.getElementById("gpu-dash-load").textContent = `${d.gpu.load}% (${d.gpu.name || 'GPU'})`;
-      document.getElementById("gpu-dash-temp").textContent = `${d.gpu.temp || '--'}°C | VRAM: ${d.gpu.mem_used_mb || 0}/${d.gpu.mem_total_mb || 0} MB`;
+      const gpuPct = Math.round(d.gpu.load);
+      const gpuLoadEl = document.getElementById("gpu-dash-load");
+      if (gpuLoadEl) gpuLoadEl.textContent = `${gpuPct}%`;
+      const gpuNameEl = document.getElementById("gpu-dash-name");
+      if (gpuNameEl) gpuNameEl.textContent = d.gpu.name || "Placa de Vídeo";
+      const gpuBadge = document.getElementById("gpu-vendor-badge");
+      if (gpuBadge) {
+        gpuBadge.textContent = d.gpu.vendor || "GPU";
+        gpuBadge.className = "badge badge-cyan";
+      }
+      const gpuBar = document.getElementById("gpu-bar");
+      if (gpuBar) {
+        gpuBar.style.width = `${Math.min(100, Math.max(0, gpuPct))}%`;
+        gpuBar.className = `progress-fill ${gpuPct > 85 ? "danger" : gpuPct > 70 ? "warn" : ""}`;
+      }
+      const vramEl = document.getElementById("gpu-dash-vram");
+      if (vramEl) {
+        if (d.gpu.mem_used_mb && d.gpu.mem_total_mb) {
+          const usedGb = (d.gpu.mem_used_mb / 1024).toFixed(1);
+          const totalGb = (d.gpu.mem_total_mb / 1024).toFixed(1);
+          const vramPct = Math.round((d.gpu.mem_used_mb / d.gpu.mem_total_mb) * 100);
+          vramEl.textContent = `${usedGb} GB / ${totalGb} GB (${vramPct}%)`;
+        } else if (d.gpu.mem_used_mb) {
+          vramEl.textContent = `${(d.gpu.mem_used_mb / 1024).toFixed(1)} GB Dedicada`;
+        } else {
+          vramEl.textContent = "Dinâmica / WDDM";
+        }
+      }
+      const tempEl = document.getElementById("gpu-dash-temp");
+      if (tempEl) {
+        if (d.gpu.temp !== null && d.gpu.temp !== undefined) {
+          tempEl.textContent = `${d.gpu.temp}°C`;
+        } else if (d.cpu && d.cpu.temp !== null && d.cpu.temp !== undefined) {
+          tempEl.textContent = `CPU: ${d.cpu.temp}°C`;
+        } else {
+          tempEl.textContent = "Normal (Estável)";
+        }
+      }
     } else if (hardwareSpecsData && hardwareSpecsData.gpus && hardwareSpecsData.gpus.length > 0) {
-      document.getElementById("gpu-dash-load").textContent = hardwareSpecsData.gpus[0].Name || "Ativa";
-      document.getElementById("gpu-dash-temp").textContent = hardwareSpecsData.gpus[0].DriverVersion ? `Driver ${hardwareSpecsData.gpus[0].DriverVersion}` : "Integrada / WDDM";
-    } else {
-      document.getElementById("gpu-dash-load").textContent = "Adaptador Gráfico Ativo";
-      document.getElementById("gpu-dash-temp").textContent = "Monitorado via WMI";
+      const g0 = hardwareSpecsData.gpus[0];
+      const gpuLoadEl = document.getElementById("gpu-dash-load");
+      if (gpuLoadEl) gpuLoadEl.textContent = "Ativa";
+      const gpuNameEl = document.getElementById("gpu-dash-name");
+      if (gpuNameEl) gpuNameEl.textContent = g0.Name || "Placa de Vídeo";
+      const vramEl = document.getElementById("gpu-dash-vram");
+      if (vramEl) vramEl.textContent = g0.AdapterRAM_GB ? `${g0.AdapterRAM_GB} GB Total` : "WDDM Integrada";
+      const tempEl = document.getElementById("gpu-dash-temp");
+      if (tempEl) tempEl.textContent = "Operacional";
     }
   } catch (err) {
     // Ignore transient polling errors
@@ -2230,6 +2322,112 @@ function copyHardwareReport() {
   navigator.clipboard.writeText(text).then(() => {
     showToast("Ficha técnica copiada para a área de transferência!", "success");
   });
+}
+
+async function loadBatteryHealth(force = false) {
+  const container = document.getElementById("battery-health-container");
+  if (!container) return;
+  if (force) {
+    container.innerHTML = `<div style="padding:20px; text-align:center; color:var(--text-secondary);"><span class="spinner"></span> Atualizando dados da bateria...</div>`;
+  }
+  try {
+    const res = await fetch(`/api/battery/report?force=${force ? 'true' : 'false'}`);
+    const bat = await res.json();
+
+    if (!bat.is_laptop || !bat.has_battery) {
+      container.innerHTML = `
+        <div style="display:flex; align-items:center; gap:16px; padding:16px 20px; background:var(--paper); border:1px solid var(--border-color); border-radius:12px;">
+          <div style="width:48px; height:48px; border-radius:12px; background:rgba(34,197,94,0.15); border:1px solid rgba(34,197,94,0.3); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#22c55e" stroke-width="2.2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          </div>
+          <div style="flex:1;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <strong style="font-size:15px; color:var(--text-primary);">${escapeHtml(bat.device_type || "Computador Desktop")}</strong>
+              <span class="badge badge-green">Alimentação Contínua AC</span>
+            </div>
+            <p style="font-size:12.5px; color:var(--text-secondary); margin-top:4px; line-height:1.4;">
+              ${escapeHtml(bat.message || "Dispositivo conectado permanentemente à rede elétrica via fonte. Desgaste químico de bateria: 0% (Inexistente).")}
+            </p>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:22px; font-weight:800; color:var(--accent-emerald);">100%</div>
+            <div style="font-size:11px; color:var(--text-secondary);">Estabilidade Energética</div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    // Laptop with battery
+    const healthTone = bat.status_tone === 'great' || bat.status_tone === 'ok' ? 'badge-green' : (bat.status_tone === 'warn' ? 'badge-amber' : 'badge-red');
+    const healthColor = bat.status_tone === 'great' || bat.status_tone === 'ok' ? 'var(--accent-emerald)' : (bat.status_tone === 'warn' ? 'var(--accent-amber)' : 'var(--accent-rose)');
+
+    container.innerHTML = `
+      <div style="display:grid; grid-template-columns: 240px 1fr; gap:20px; align-items:center; padding:16px; background:var(--paper); border:1px solid var(--border-color); border-radius:12px;">
+        <div style="text-align:center; padding:12px; background:var(--sunken); border-radius:10px; border:1px solid var(--line);">
+          <div style="font-size:11.5px; font-weight:700; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px;">Saúde da Bateria</div>
+          <div style="font-size:38px; font-weight:800; color:${healthColor}; margin:4px 0; font-variant-numeric:tabular-nums;">
+            ${bat.health_percent}%
+          </div>
+          <div class="progress-bar" style="height:7px; margin:8px 0;">
+            <div class="progress-fill" style="width:${bat.health_percent}%; background:${healthColor};"></div>
+          </div>
+          <div style="font-size:12px; color:var(--text-secondary);">
+            Desgaste acumulado: <strong style="color:var(--text-primary);">${bat.wear_percent}%</strong>
+          </div>
+        </div>
+
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <div style="font-size:14px; font-weight:700;">
+              ${escapeHtml(bat.manufacturer || "Bateria")} — ${escapeHtml(bat.chemistry || "Li-ion")}
+            </div>
+            <span class="badge ${healthTone}">${escapeHtml(bat.status_label)}</span>
+          </div>
+
+          <div class="grid-3" style="gap:10px; margin-bottom:10px;">
+            <div class="disk-item" style="padding:10px 12px; margin:0;">
+              <div style="font-size:11px; color:var(--text-secondary);">Capacidade de Fábrica</div>
+              <strong style="font-size:14px;">${bat.design_capacity_mwh ? (bat.design_capacity_mwh / 1000).toFixed(1) + ' Wh' : '--'}</strong>
+              <div style="font-size:10.5px; color:var(--text-secondary);">${bat.design_capacity_mwh ? bat.design_capacity_mwh + ' mWh' : ''}</div>
+            </div>
+            <div class="disk-item" style="padding:10px 12px; margin:0;">
+              <div style="font-size:11px; color:var(--text-secondary);">Capacidade Atual Máx.</div>
+              <strong style="font-size:14px; color:${healthColor};">${bat.full_charge_capacity_mwh ? (bat.full_charge_capacity_mwh / 1000).toFixed(1) + ' Wh' : '--'}</strong>
+              <div style="font-size:10.5px; color:var(--text-secondary);">${bat.full_charge_capacity_mwh ? bat.full_charge_capacity_mwh + ' mWh' : ''}</div>
+            </div>
+            <div class="disk-item" style="padding:10px 12px; margin:0;">
+              <div style="font-size:11px; color:var(--text-secondary);">Ciclos de Carga</div>
+              <strong style="font-size:14px;">${bat.cycle_count !== null ? bat.cycle_count : 'Não informado'}</strong>
+              <div style="font-size:10.5px; color:var(--text-secondary);">${bat.power_plugged ? 'Conectado à tomada' : 'Na bateria'}</div>
+            </div>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; color:var(--text-secondary); padding-top:4px;">
+            <span>Carga Atual: <strong style="color:var(--text-primary);">${bat.percent_remaining}%</strong></span>
+            <span>Autonomia Estimada: <strong style="color:var(--text-primary);">${escapeHtml(bat.time_remaining_formatted || "--")}</strong></span>
+          </div>
+        </div>
+      </div>
+    `;
+  } catch (err) {
+    container.innerHTML = `<div style="padding:16px; color:var(--accent-rose);">Erro ao carregar dados de bateria.</div>`;
+  }
+}
+
+async function openOfficialBatteryHtml() {
+  try {
+    showToast("Gerando relatório oficial de bateria do Windows...", "info");
+    const res = await fetch("/api/battery/generate-html", { method: "POST" });
+    const data = await res.json();
+    if (data.success) {
+      showToast("Relatório de bateria gerado e aberto com sucesso!", "success");
+    } else {
+      showToast(data.error || "Não foi possível gerar o relatório de bateria.", "error");
+    }
+  } catch (err) {
+    showToast("Erro ao abrir relatório de bateria.", "error");
+  }
 }
 
 async function loadHistoryStats() {
