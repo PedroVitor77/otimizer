@@ -1,0 +1,510 @@
+"""Auto Game Booster & Background Game Detector.
+
+Monitors active processes for known games or game launchers (Steam, Epic, Riot, Xbox, etc.).
+When a game is detected:
+1. Elevates game process priority to High.
+2. Lowers priority of non-essential background processes (browsers, Discord, Spotify, updaters).
+3. Switches power plan to High / Ultimate Performance (saving the user's original plan).
+4. Cleans Standby Memory & Working Sets to avoid stuttering and micro-freezes.
+When the game closes:
+1. Restores the original Windows power plan.
+2. Restores lowered process priorities.
+3. Records session statistics to history.
+"""
+
+import ctypes
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import threading
+import time
+from typing import Any, Dict, List, Optional, Set
+
+import psutil
+
+from core.history import get_data_dir, record_action
+from core.optimizer import purge_standby_list
+
+DATA_DIR = get_data_dir()
+BOOSTER_CONFIG_FILE = DATA_DIR / "game_booster.json"
+
+# Known game executables -> Friendly game title
+KNOWN_GAMES: Dict[str, str] = {
+    # Valve & Source
+    "cs2.exe": "Counter-Strike 2",
+    "csgo.exe": "Counter-Strike: Global Offensive",
+    "dota2.exe": "Dota 2",
+    "tf2.exe": "Team Fortress 2",
+    "left4dead2.exe": "Left 4 Dead 2",
+    "hl2.exe": "Half-Life 2",
+    # Riot Games
+    "valorant-win64-shipping.exe": "Valorant",
+    "valorant.exe": "Valorant",
+    "league of legends.exe": "League of Legends",
+    # Epic & Battle Royales
+    "fortniteclient-win64-shipping.exe": "Fortnite",
+    "fortnite.exe": "Fortnite",
+    "r5apex.exe": "Apex Legends",
+    "apex.exe": "Apex Legends",
+    "pubg.exe": "PUBG: Battlegrounds",
+    "tslgame.exe": "PUBG: Battlegrounds",
+    "cod.exe": "Call of Duty: Warzone / MW",
+    "modernwarfare.exe": "Call of Duty: Modern Warfare",
+    "warzone.exe": "Call of Duty: Warzone",
+    # Competitive & Sports
+    "rocketleague.exe": "Rocket League",
+    "overwatch.exe": "Overwatch 2",
+    "rainbowsix.exe": "Rainbow Six Siege",
+    "rainbowsix_vulkan.exe": "Rainbow Six Siege",
+    "marvelrivals.exe": "Marvel Rivals",
+    "fc25.exe": "EA Sports FC 25",
+    "fifa23.exe": "EA Sports FIFA 23",
+    "fifa24.exe": "EA Sports FC 24",
+    # RPG & Open World
+    "gta5.exe": "Grand Theft Auto V",
+    "gtaiv.exe": "Grand Theft Auto IV",
+    "rdr2.exe": "Red Dead Redemption 2",
+    "cyberpunk2077.exe": "Cyberpunk 2077",
+    "witcher3.exe": "The Witcher 3: Wild Hunt",
+    "eldenring.exe": "Elden Ring",
+    "bg3.exe": "Baldur's Gate 3",
+    "bg3_dx11.exe": "Baldur's Gate 3",
+    "hogwartslegacy.exe": "Hogwarts Legacy",
+    "starfield.exe": "Starfield",
+    "b1-win64-shipping.exe": "Black Myth: Wukong",
+    "forzahorizon5.exe": "Forza Horizon 5",
+    "forzahorizon4.exe": "Forza Horizon 4",
+    "palworld-win64-shipping.exe": "Palworld",
+    "helldivers2.exe": "Helldivers 2",
+    "monsterhunterwilds.exe": "Monster Hunter Wilds",
+    "mhrise.exe": "Monster Hunter Rise",
+    "mhw.exe": "Monster Hunter: World",
+    "genshinimpact.exe": "Genshin Impact",
+    "starrail.exe": "Honkai: Star Rail",
+    "zenlesszonezero.exe": "Zenless Zone Zero",
+    "minecraft.exe": "Minecraft",
+    "javaw.exe": "Minecraft (Java Edition)",
+    "robloxplayerbeta.exe": "Roblox",
+    "fallguys_client.exe": "Fall Guys",
+    "deadbydaylight.exe": "Dead by Daylight",
+    "rustclient.exe": "Rust",
+    "dayz_x64.exe": "DayZ",
+    "tarkov.exe": "Escape from Tarkov",
+}
+
+# Processes to NEVER treat as games even if they reside in steamapps or game directories
+LAUNCHER_IGNORE: Set[str] = {
+    "steam.exe",
+    "steamwebhelper.exe",
+    "steamservice.exe",
+    "gameoverlayui.exe",
+    "epicgameslauncher.exe",
+    "unrealcefsubprocess.exe",
+    "riotclientservices.exe",
+    "riotclientux.exe",
+    "vgc.exe",
+    "vgtray.exe",
+    "origin.exe",
+    "eaconnect_x64.exe",
+    "ea.exe",
+    "eadesktop.exe",
+    "battlenet.exe",
+    "agent.exe",
+    "gog.galaxy.exe",
+    "galaxyclient.exe",
+    "easyanticheat.exe",
+    "easyanticheat_eos.exe",
+    "battleye.exe",
+    "beservice.exe",
+    "crashreporter.exe",
+    "unitycrashhandler64.exe",
+    "unitycrashhandler32.exe",
+    "pulsepc.exe",
+    "python.exe",
+    "pythonw.exe",
+}
+
+# Non-critical applications to throttle (lower priority) while a game is running
+BACKGROUND_APPS_TO_THROTTLE: Set[str] = {
+    # Web Browsers
+    "chrome.exe",
+    "msedge.exe",
+    "firefox.exe",
+    "brave.exe",
+    "opera.exe",
+    "operagx.exe",
+    "vivaldi.exe",
+    # Communications & Media
+    "discord.exe",
+    "spotify.exe",
+    "telegram.exe",
+    "whatsapp.exe",
+    "slack.exe",
+    # Torrents & Downloaders
+    "qbittorrent.exe",
+    "utorrent.exe",
+    "bittorrent.exe",
+    # Windows Non-Essential Background Hosts
+    "onedrive.exe",
+    "searchindexer.exe",
+    "compattelrunner.exe",
+    "widgets.exe",
+    "yourphone.exe",
+    "phoneexperiencehost.exe",
+}
+
+
+def _get_active_power_plan() -> Optional[str]:
+    """Retrieve current Windows active power plan GUID."""
+    try:
+        out = subprocess.check_output(
+            ["powercfg", "/getactivescheme"],
+            text=True,
+            encoding="oem",
+            errors="replace",
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            timeout=3,
+        )
+        match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", out)
+        if match:
+            return match.group(1).lower()
+    except Exception:
+        pass
+    return None
+
+
+def _set_active_power_plan(guid: str) -> bool:
+    """Set the Windows active power plan by GUID."""
+    try:
+        res = subprocess.run(
+            ["powercfg", "/setactive", guid],
+            capture_output=True,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            timeout=3,
+        )
+        return res.returncode == 0
+    except Exception:
+        return False
+
+
+def _find_best_performance_plan() -> Optional[str]:
+    """Find High or Ultimate Performance power plan GUID, creating High Performance if needed."""
+    preferred = [
+        "e9a42b02-d5df-448d-aa00-03f14749eb61",  # Ultimate Performance
+        "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",  # High Performance
+    ]
+    try:
+        out = subprocess.check_output(
+            ["powercfg", "/list"],
+            text=True,
+            encoding="oem",
+            errors="replace",
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            timeout=3,
+        )
+        found_guids = re.findall(
+            r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})",
+            out,
+        )
+        found_guids_lower = [g.lower() for g in found_guids]
+
+        for p in preferred:
+            if p in found_guids_lower:
+                return p
+
+        # Check for any plan mentioning High / Alto / Desempenho
+        lines = out.splitlines()
+        for line in lines:
+            ll = line.lower()
+            if any(term in ll for term in ("alto", "high", "ultimate", "desempenho")):
+                m = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", line)
+                if m:
+                    return m.group(1).lower()
+
+        # Try duplicating High Performance
+        subprocess.run(
+            ["powercfg", "-duplicatescheme", "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"],
+            capture_output=True,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            timeout=3,
+        )
+        return "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
+    except Exception:
+        return None
+
+
+class GameBooster:
+    """Singleton background watcher that optimizes performance whenever games run."""
+
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.enabled: bool = True
+        self.running: bool = False
+        self._thread: Optional[threading.Thread] = None
+
+        self.active_game: Optional[Dict[str, Any]] = None
+        self.original_power_plan: Optional[str] = None
+        self.throttled_pids: Dict[int, int] = {}  # pid -> original_priority
+        self.last_session: Optional[Dict[str, Any]] = None
+
+        self._load_config()
+
+    def _load_config(self) -> None:
+        if BOOSTER_CONFIG_FILE.exists():
+            try:
+                with open(BOOSTER_CONFIG_FILE, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    self.enabled = bool(cfg.get("enabled", True))
+            except Exception:
+                self.enabled = True
+
+    def _save_config(self) -> None:
+        try:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            with open(BOOSTER_CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump({"enabled": self.enabled}, f, indent=2)
+        except Exception:
+            pass
+
+    def start(self) -> None:
+        """Start the background detector loop if not already running."""
+        with self.lock:
+            if self.running and self._thread and self._thread.is_alive():
+                return
+            self.running = True
+            self._thread = threading.Thread(target=self._detector_loop, daemon=True, name="GameBoosterWatcher")
+            self._thread.start()
+
+    def stop(self) -> None:
+        """Stop watcher thread and revert any active boost."""
+        with self.lock:
+            self.running = False
+            if self.active_game:
+                self._deactivate_boost()
+
+    def set_enabled(self, enabled: bool) -> Dict[str, Any]:
+        """Toggle auto-detection on or off."""
+        with self.lock:
+            self.enabled = enabled
+            self._save_config()
+            if not enabled and self.active_game:
+                self._deactivate_boost()
+            elif enabled and not self.running:
+                self.start()
+            return self.get_status()
+
+    def get_status(self) -> Dict[str, Any]:
+        """Return the current Game Booster status."""
+        with self.lock:
+            return {
+                "enabled": self.enabled,
+                "is_monitoring": self.running and self.enabled,
+                "active_game": self.active_game,
+                "throttled_apps_count": len(self.throttled_pids),
+                "last_session": self.last_session,
+            }
+
+    def detect_running_game(self) -> Optional[Dict[str, Any]]:
+        """Scan active processes to see if any known game is executing."""
+        for proc in psutil.process_iter(["pid", "name", "exe"]):
+            try:
+                pname = (proc.info.get("name") or "").lower()
+                if pname in LAUNCHER_IGNORE:
+                    continue
+
+                pexe = (proc.info.get("exe") or "").lower()
+                pid = proc.info["pid"]
+
+                # 1. Direct match in KNOWN_GAMES
+                if pname in KNOWN_GAMES:
+                    return {
+                        "pid": pid,
+                        "name": KNOWN_GAMES[pname],
+                        "exe_name": proc.info["name"],
+                        "exe_path": proc.info.get("exe") or "",
+                    }
+
+                # 2. Path heuristic: inside steamapps/common or Epic/Riot/Xbox directories
+                if pexe:
+                    is_game_dir = any(
+                        sub in pexe
+                        for sub in [
+                            "\\steamapps\\common\\",
+                            "\\epic games\\",
+                            "\\riot games\\valorant\\",
+                            "\\riot games\\league of legends\\",
+                            "\\xboxgames\\",
+                            "\\ea games\\",
+                            "\\ubisoft game launcher\\games\\",
+                        ]
+                    )
+                    if is_game_dir:
+                        # Normalize a clean title from the executable name or folder
+                        title = Path(pexe).stem.replace("_", " ").title()
+                        return {
+                            "pid": pid,
+                            "name": title,
+                            "exe_name": proc.info["name"],
+                            "exe_path": proc.info.get("exe") or "",
+                        }
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+            except Exception:
+                continue
+        return None
+
+    def boost_process(self, pid: int, custom_title: Optional[str] = None) -> Dict[str, Any]:
+        """Manually trigger Turbo Game Mode for a specific PID."""
+        with self.lock:
+            try:
+                proc = psutil.Process(pid)
+                pname = proc.name()
+                game_title = custom_title or KNOWN_GAMES.get(pname.lower()) or pname
+                game_info = {
+                    "pid": pid,
+                    "name": game_title,
+                    "exe_name": pname,
+                    "exe_path": proc.exe() if hasattr(proc, "exe") else "",
+                }
+                self._activate_boost(game_info)
+                return {"success": True, "game": game_info}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+
+    def _activate_boost(self, game_info: Dict[str, Any]) -> None:
+        """Apply Turbo settings for the identified game."""
+        pid = game_info["pid"]
+        game_title = game_info["name"]
+
+        # 1. Elevate Game Priority
+        elevated = False
+        try:
+            p = psutil.Process(pid)
+            p.nice(psutil.HIGH_PRIORITY_CLASS)
+            elevated = True
+        except Exception:
+            pass
+
+        # 2. Switch Windows Power Plan to High Performance
+        self.original_power_plan = _get_active_power_plan()
+        perf_plan = _find_best_performance_plan()
+        switched_power = False
+        if perf_plan and perf_plan != self.original_power_plan:
+            switched_power = _set_active_power_plan(perf_plan)
+
+        # 3. Throttle background browser and updater processes
+        self.throttled_pids.clear()
+        throttled_names = []
+        for proc in psutil.process_iter(["pid", "name"]):
+            try:
+                pname = (proc.info.get("name") or "").lower()
+                p_pid = proc.info["pid"]
+                if p_pid == pid:
+                    continue
+                if pname in BACKGROUND_APPS_TO_THROTTLE:
+                    target_proc = psutil.Process(p_pid)
+                    old_pri = target_proc.nice()
+                    target_proc.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
+                    self.throttled_pids[p_pid] = old_pri
+                    throttled_names.append(proc.info["name"])
+            except Exception:
+                continue
+
+        # 4. Clean Standby Memory List & Working Sets
+        ram_res = purge_standby_list(record_in_history=False)
+
+        started_at = time.strftime("%H:%M:%S")
+        self.active_game = {
+            "pid": pid,
+            "name": game_title,
+            "exe_name": game_info.get("exe_name"),
+            "exe_path": game_info.get("exe_path"),
+            "started_at": started_at,
+            "elevated_priority": elevated,
+            "switched_power": switched_power,
+            "ram_freed_mb": ram_res.get("freed_mb", 0),
+            "throttled_apps": list(set(throttled_names)),
+        }
+
+        # Log action to PulsePC history
+        record_action(
+            action_type="game_booster",
+            title=f"Game Booster: {game_title}",
+            details=(
+                f"Modo Turbo ativado automaticamente. "
+                f"Prioridade Alta: {'Sim' if elevated else 'Normal'} | "
+                f"RAM liberada: {ram_res.get('freed_mb', 0)} MB | "
+                f"Apps em 2º plano desacelerados: {len(self.throttled_pids)}"
+            ),
+            ram_freed_mb=ram_res.get("freed_mb", 0),
+        )
+
+    def _deactivate_boost(self) -> None:
+        """Revert settings when the game process closes."""
+        if not self.active_game:
+            return
+
+        game_title = self.active_game.get("name", "Jogo")
+
+        # 1. Restore Windows Power Plan
+        if self.original_power_plan:
+            _set_active_power_plan(self.original_power_plan)
+            self.original_power_plan = None
+
+        # 2. Restore throttled processes
+        restored_count = 0
+        for p_pid, old_pri in self.throttled_pids.items():
+            try:
+                p = psutil.Process(p_pid)
+                p.nice(old_pri or psutil.NORMAL_PRIORITY_CLASS)
+                restored_count += 1
+            except Exception:
+                continue
+        self.throttled_pids.clear()
+
+        ended_at = time.strftime("%H:%M:%S")
+        self.last_session = {
+            "name": game_title,
+            "started_at": self.active_game.get("started_at"),
+            "ended_at": ended_at,
+            "restored_apps": restored_count,
+        }
+
+        self.active_game = None
+
+    def _detector_loop(self) -> None:
+        """Lightweight background loop running every 2.5 - 3.0 seconds."""
+        while self.running:
+            try:
+                time.sleep(3.0)
+                if not self.enabled:
+                    continue
+
+                with self.lock:
+                    # If we currently have an active game, verify it is still alive
+                    if self.active_game:
+                        active_pid = self.active_game.get("pid")
+                        if active_pid is None or not psutil.pid_exists(active_pid):
+                            self._deactivate_boost()
+                        else:
+                            try:
+                                proc = psutil.Process(active_pid)
+                                if not proc.is_running() or proc.status() == psutil.STATUS_ZOMBIE:
+                                    self._deactivate_boost()
+                            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                                self._deactivate_boost()
+                        continue
+
+                    # If no active game, scan for one
+                    detected = self.detect_running_game()
+                    if detected:
+                        self._activate_boost(detected)
+
+            except Exception:
+                pass
+
+
+# Global singleton booster instance
+booster = GameBooster()

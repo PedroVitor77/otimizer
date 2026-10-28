@@ -542,24 +542,42 @@
               <span class="card-title">Otimizador de Memória RAM</span>
               <span class="badge badge-cyan">Instantâneo</span>
             </div>
-            <p style="font-size:12.5px; color:var(--text-secondary); margin-bottom:16px;">
-              Libera páginas de memória ociosa (Working Set) presas por aplicativos em segundo plano sem fechar seus programas abertos.
+            <p style="font-size:12.5px; color:var(--text-secondary); margin-bottom:14px;">
+              Libera páginas ociosas de processos (Working Set) e esvazia a <strong>Standby List</strong> do kernel para eliminar micro-travamentos em jogos.
             </p>
-            <div id="opt-ram-result" style="font-size:12.5px; color:var(--accent-emerald); margin-bottom:12px; min-height:20px;"></div>
-            <button class="btn btn-primary" style="width:100%;" id="btn-opt-ram" onclick="optimizeRamNow()">Liberar Memória RAM Agora</button>
+            <div id="opt-ram-result" style="font-size:12px; color:var(--accent-emerald); margin-bottom:12px; min-height:18px;"></div>
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              <button class="btn btn-primary" style="width:100%;" id="btn-opt-ram" onclick="optimizeRamNow()">Liberar Working Sets</button>
+              <button class="btn btn-purple" style="width:100%; font-weight:600; display:flex; align-items:center; justify-content:center; gap:6px;" id="btn-opt-standby" onclick="purgeStandbyNow()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px; height:14px;"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                Limpar Standby List (RAM Real)
+              </button>
+            </div>
           </div>
 
-          <!-- Turbo Mode Card -->
+          <!-- Auto Game Booster Card -->
           <div class="card">
             <div class="card-header">
-              <span class="card-title">Modo Turbo / Alto Desempenho</span>
-              <span class="badge badge-amber">Jogos & Tarefas Pesadas</span>
+              <span class="card-title">Auto Game Booster</span>
+              <span class="badge badge-amber" id="booster-status-badge">Detector Ativo</span>
             </div>
-            <p style="font-size:12.5px; color:var(--text-secondary); margin-bottom:16px;">
-              Ativa o Plano de Energia de Alto Desempenho do Windows, reduz a prioridade de indexadores em 2º plano e limpa a RAM.
+            <p style="font-size:12.5px; color:var(--text-secondary); margin-bottom:10px;">
+              Detecta jogos em 2º plano (Steam, Epic, Riot, etc.), ativa Modo Turbo, eleva prioridade para Alta e reduz navegadores/apps pesados.
             </p>
-            <div id="opt-turbo-result" style="font-size:12.5px; color:var(--accent-emerald); margin-bottom:12px; min-height:20px;"></div>
-            <button class="btn btn-purple" style="width:100%;" id="btn-opt-turbo" onclick="activateTurboMode()">Ativar Modo Turbo</button>
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:6px 10px; background:rgba(255,255,255,0.03); border:1px solid var(--border-color); border-radius:8px; margin-bottom:10px;">
+              <span style="font-size:12px; font-weight:500;">Monitoramento Automático</span>
+              <label class="switch">
+                <input type="checkbox" id="toggle-game-booster" onchange="toggleGameBooster(this.checked)" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div id="booster-active-details" style="font-size:12px; color:var(--accent-emerald); margin-bottom:10px; min-height:18px;">
+              Monitorando processos em segundo plano...
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-purple" style="flex:1;" id="btn-opt-turbo" onclick="activateTurboMode()">Turbo Manual</button>
+              <button class="btn btn-secondary" onclick="openBoostProcessModal()">Otimizar Jogo</button>
+            </div>
           </div>
 
           <!-- Network Optimizer Card -->
@@ -577,6 +595,79 @@
             <div style="display:flex; gap:8px;">
               <button class="btn btn-primary" style="flex:1;" id="btn-opt-net" onclick="optimizeNetworkNow()">Otimizar Rede & DNS</button>
               <button class="btn btn-secondary" onclick="testPingOnly()">Testar Ping</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Benchmark Rápido Integrado (PulseScore 10s) -->
+        <div class="card" style="margin-top:20px; background: linear-gradient(145deg, rgba(20,24,22,0.9) 0%, rgba(13,16,14,0.95) 100%); border: 1px solid rgba(16,185,129,0.25);">
+          <div class="card-header" style="align-items:flex-start;">
+            <div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span class="card-title" style="font-size:16px;">Benchmark Rápido Integrado (PulseScore - 10s)</span>
+                <span class="badge badge-green">Teste Real de Hardware</span>
+              </div>
+              <div class="card-subtitle">Mede CPU Multi-core, largura de banda da memória RAM e taxa I/O do disco antes e depois da otimização.</div>
+            </div>
+            <button class="btn btn-primary" id="btn-start-benchmark" onclick="startPulseBenchmark()" style="display:flex; align-items:center; gap:6px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px; height:16px;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Executar Teste Rápido (10s)
+            </button>
+          </div>
+
+          <!-- Benchmark Progress Bar (visible during test) -->
+          <div id="bench-progress-wrap" style="display:none; margin:16px 0;">
+            <div style="display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:6px;">
+              <span id="bench-stage-txt" style="color:var(--accent-emerald); font-weight:500;">Preparando teste...</span>
+              <span id="bench-pct-txt" style="color:var(--text-secondary); font-weight:600;">0%</span>
+            </div>
+            <div style="width:100%; height:8px; background:rgba(255,255,255,0.06); border-radius:4px; overflow:hidden;">
+              <div id="bench-progress-bar" style="width:0%; height:100%; background:linear-gradient(90deg, #10b981, #06b6d4); transition:width 0.4s ease; border-radius:4px;"></div>
+            </div>
+          </div>
+
+          <!-- Benchmark Score Grid -->
+          <div style="display:grid; grid-template-columns: 240px 1fr; gap:20px; align-items:center; margin-top:16px;" id="bench-results-grid">
+            <!-- Main PulseScore Box -->
+            <div style="background:rgba(0,0,0,0.35); border:1px solid rgba(16,185,129,0.3); border-radius:12px; padding:18px; text-align:center;">
+              <div style="font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--text-secondary);">PulseScore Geral</div>
+              <div id="bench-main-score" style="font-size:38px; font-weight:800; color:#10b981; line-height:1.2; margin:6px 0;">
+                --
+              </div>
+              <div id="bench-gain-badge">
+                <span class="badge badge-cyan" style="font-size:11px;">Aguardando 1º teste</span>
+              </div>
+              <div id="bench-timestamp" style="font-size:11px; color:var(--text-secondary); margin-top:8px;"></div>
+            </div>
+
+            <!-- Sub Metrics Columns -->
+            <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:12px;">
+              <div style="background:rgba(255,255,255,0.02); border:1px solid var(--border-color); border-radius:10px; padding:14px;">
+                <div style="font-size:11.5px; color:var(--text-secondary); display:flex; align-items:center; gap:6px;">
+                  <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#10b981;"></span>
+                  CPU Multi-Core
+                </div>
+                <div id="bench-cpu-score" style="font-size:20px; font-weight:700; color:var(--text-primary); margin:6px 0;">-- pts</div>
+                <div id="bench-cpu-sub" style="font-size:11px; color:var(--text-secondary);">-- ops/seg</div>
+              </div>
+
+              <div style="background:rgba(255,255,255,0.02); border:1px solid var(--border-color); border-radius:10px; padding:14px;">
+                <div style="font-size:11.5px; color:var(--text-secondary); display:flex; align-items:center; gap:6px;">
+                  <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#06b6d4;"></span>
+                  Largura Banda RAM
+                </div>
+                <div id="bench-ram-score" style="font-size:20px; font-weight:700; color:var(--text-primary); margin:6px 0;">-- pts</div>
+                <div id="bench-ram-sub" style="font-size:11px; color:var(--text-secondary);">-- MB/s</div>
+              </div>
+
+              <div style="background:rgba(255,255,255,0.02); border:1px solid var(--border-color); border-radius:10px; padding:14px;">
+                <div style="font-size:11.5px; color:var(--text-secondary); display:flex; align-items:center; gap:6px;">
+                  <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#a855f7;"></span>
+                  Taxa do Disco I/O
+                </div>
+                <div id="bench-disk-score" style="font-size:20px; font-weight:700; color:var(--text-primary); margin:6px 0;">-- pts</div>
+                <div id="bench-disk-sub" style="font-size:11px; color:var(--text-secondary);">G: -- | L: -- MB/s</div>
+              </div>
             </div>
           </div>
         </div>
@@ -797,6 +888,26 @@
   </div>
 
   <!-- Toast Container -->
+  
+  <!-- Game Boost Process Selection Modal -->
+  <div id="boost-modal-backdrop" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" style="width:min(580px, 100%);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <h2 class="modal-title" style="font-size:18px;">🎮 Otimizar Jogo / Processo</h2>
+        <button class="btn btn-secondary" onclick="closeBoostProcessModal()" style="padding:4px 8px; font-size:12px;">✕</button>
+      </div>
+      <p class="modal-message" style="margin-bottom:14px;">
+        Selecione um jogo ou programa em execução para elevar a prioridade para <strong>Alta</strong>, ativar o plano de <strong>Alto Desempenho</strong> e limpar a <strong>Standby List</strong>.
+      </p>
+      <div id="boost-candidates-list" style="max-height:280px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; margin-bottom:16px;">
+        <!-- Populated by JS -->
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeBoostProcessModal()">Fechar</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast-container"></div>
 
   <script src="/static/app.js"></script>

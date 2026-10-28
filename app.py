@@ -65,10 +65,13 @@ from core.optimizer import (
     get_windows_tweaks,
     optimize_network,
     optimize_ram,
+    purge_standby_list,
     quick_boost,
     run_ping_test,
     toggle_windows_tweak,
 )
+from core.game_booster import booster, KNOWN_GAMES
+from core.benchmark import benchmark_runner
 from core.scanner import (
     get_scan_presets,
     open_in_explorer,
@@ -87,7 +90,7 @@ from core.updater import (
 psutil.cpu_percent(interval=None)
 psutil.cpu_percent(interval=None, percpu=True)
 
-app = FastAPI(title="PulsePC Otimizador Pro", version="1.0.0")
+app = FastAPI(title="PulsePC Otimizador Pro", version="1.1.0")
 
 LOCAL_HOSTNAMES = {"127.0.0.1", "localhost"}
 
@@ -177,6 +180,15 @@ class GamesEstimateRequest(BaseModel):
 
 class UpdateDownloadRequest(BaseModel):
     download_url: str
+
+
+class GameBoosterToggleRequest(BaseModel):
+    enabled: bool
+
+
+class GameBoosterBoostRequest(BaseModel):
+    pid: int
+    title: Optional[str] = None
 
 
 # --- Routes ---
@@ -311,9 +323,69 @@ def api_optimize_ram():
     return optimize_ram()
 
 
+@app.post("/api/optimizer/standby")
+def api_purge_standby():
+    return purge_standby_list()
+
+
 @app.post("/api/optimizer/turbo")
 def api_activate_turbo():
     return activate_turbo_mode()
+
+
+@app.get("/api/game-booster/status")
+def api_game_booster_status():
+    return booster.get_status()
+
+
+@app.post("/api/game-booster/toggle")
+def api_game_booster_toggle(req: GameBoosterToggleRequest):
+    return booster.set_enabled(req.enabled)
+
+
+@app.post("/api/game-booster/boost-now")
+def api_game_booster_boost_now(req: GameBoosterBoostRequest):
+    return booster.boost_process(req.pid, req.title)
+
+
+@app.get("/api/game-booster/running-candidates")
+def api_game_booster_candidates():
+    candidates = []
+    for proc in psutil.process_iter(["pid", "name", "memory_info"]):
+        try:
+            pname = (proc.info.get("name") or "").lower()
+            if pname in ("idle", "system", "registry", "smss.exe", "csrss.exe", "wininit.exe"):
+                continue
+            is_game = pname in KNOWN_GAMES
+            mem = proc.info.get("memory_info")
+            ram_mb = round((mem.rss if mem else 0) / (1024 * 1024), 1)
+            if is_game or ram_mb >= 250:
+                candidates.append({
+                    "pid": proc.info["pid"],
+                    "name": KNOWN_GAMES.get(pname, proc.info["name"]),
+                    "exe_name": proc.info["name"],
+                    "ram_mb": ram_mb,
+                    "is_known_game": is_game,
+                })
+        except Exception:
+            continue
+    candidates.sort(key=lambda x: (not x["is_known_game"], -x["ram_mb"]))
+    return {"candidates": candidates[:20]}
+
+
+@app.post("/api/benchmark/start")
+def api_benchmark_start():
+    return benchmark_runner.start()
+
+
+@app.get("/api/benchmark/status")
+def api_benchmark_status():
+    return benchmark_runner.get_status()
+
+
+@app.get("/api/benchmark/history")
+def api_benchmark_history():
+    return benchmark_runner.load_data()
 
 
 @app.post("/api/optimizer/network")
@@ -473,6 +545,9 @@ def main():
 
     # Pre-warm hardware specs in a background thread so UI loads fast
     threading.Thread(target=get_hardware_specs, daemon=True).start()
+
+    # Start background auto game detector
+    booster.start()
 
     port = find_free_port(8765)
     url = f"http://127.0.0.1:{port}"

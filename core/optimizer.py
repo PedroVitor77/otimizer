@@ -15,7 +15,93 @@ PROCESS_QUERY_INFORMATION = 0x0400
 PROCESS_SET_QUOTA = 0x0100
 
 
+def enable_windows_privilege(privilege_name: str) -> bool:
+    try:
+        advapi32 = ctypes.windll.advapi32
+        kernel32 = ctypes.windll.kernel32
+        TOKEN_ADJUST_PRIVILEGES = 0x0020
+        TOKEN_QUERY = 0x0008
+        SE_PRIVILEGE_ENABLED = 0x00000002
+
+        hToken = ctypes.c_void_p()
+        if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, ctypes.byref(hToken)):
+            return False
+
+        luid = ctypes.c_int64()
+        if not advapi32.LookupPrivilegeValueW(None, privilege_name, ctypes.byref(luid)):
+            kernel32.CloseHandle(hToken)
+            return False
+
+        class LUID_AND_ATTRIBUTES(ctypes.Structure):
+            _fields_ = [('Luid', ctypes.c_int64), ('Attributes', ctypes.c_uint32)]
+
+        class TOKEN_PRIVILEGES(ctypes.Structure):
+            _fields_ = [('PrivilegeCount', ctypes.c_uint32), ('Privileges', LUID_AND_ATTRIBUTES * 1)]
+
+        tp = TOKEN_PRIVILEGES()
+        tp.PrivilegeCount = 1
+        tp.Privileges[0].Luid = luid
+        tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED
+
+        advapi32.AdjustTokenPrivileges(hToken, False, ctypes.byref(tp), ctypes.sizeof(tp), None, None)
+        success = kernel32.GetLastError() == 0
+        kernel32.CloseHandle(hToken)
+        return success
+    except Exception:
+        return False
+
+
+def purge_standby_list(record_in_history: bool = True) -> Dict[str, Any]:
+    """Purge Windows kernel Standby Memory List using NtSetSystemInformation (requires Admin for kernel list)."""
+    vm_before = psutil.virtual_memory()
+
+    enable_windows_privilege('SeProfileSingleProcessPrivilege')
+    enable_windows_privilege('SeIncreaseQuotaPrivilege')
+
+    purged_kernel = False
+    try:
+        cmd = ctypes.c_int(4)  # MemoryPurgeStandbyList = 4
+        res = ctypes.windll.ntdll.NtSetSystemInformation(80, ctypes.byref(cmd), ctypes.sizeof(cmd))
+        if res == 0:
+            purged_kernel = True
+    except Exception:
+        pass
+
+    ram_res = optimize_ram(record_in_history=False)
+
+    time.sleep(0.3)
+    vm_after = psutil.virtual_memory()
+    freed_bytes = max(0, vm_before.used - vm_after.used)
+    freed_mb = round(freed_bytes / (1024 * 1024), 1)
+
+    if record_in_history:
+        status_str = "Liberado (Kernel)" if purged_kernel else "Liberado via WorkingSets"
+        record_action(
+            action_type='standby_purge',
+            title='Limpeza de Standby List & RAM Real',
+            details=f"Cache de Standby: {status_str} | Total liberado: {freed_mb} MB ({vm_before.percent:.1f}% -> {vm_after.percent:.1f}%)",
+            ram_freed_mb=freed_mb,
+        )
+
+    return {
+        'success': True,
+        'purged_kernel_standby': purged_kernel,
+        'freed_bytes': freed_bytes,
+        'freed_mb': freed_mb,
+        'freed_formatted': f'{freed_mb} MB' if freed_mb < 1024 else f'{round(freed_mb / 1024, 2)} GB',
+        'percent_before': round(vm_before.percent, 1),
+        'percent_after': round(vm_after.percent, 1),
+        'trimmed_processes': ram_res.get('trimmed_processes', 0),
+    }
+
+
 def optimize_ram(record_in_history: bool = True) -> Dict[str, Any]:
+    enable_windows_privilege('SeProfileSingleProcessPrivilege')
+    try:
+        cmd = ctypes.c_int(4)
+        ctypes.windll.ntdll.NtSetSystemInformation(80, ctypes.byref(cmd), ctypes.sizeof(cmd))
+    except Exception:
+        pass
     vm_before = psutil.virtual_memory()
     used_before = vm_before.used
     pct_before = vm_before.percent
