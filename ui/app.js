@@ -2135,14 +2135,22 @@ async function cleanSelectedLeftovers() {
     const data = await res.json();
     closeLeftoversModal();
 
-    if (data.success && (data.removed_folders + data.removed_files + data.removed_keys) > 0) {
+    if (!res.ok) {
+      const errDetail = data && data.detail ? (Array.isArray(data.detail) ? (data.detail[0]?.msg || JSON.stringify(data.detail[0])) : data.detail) : "Erro na resposta do servidor.";
+      showToast(`Erro ao limpar sobras: ${errDetail}`, "error");
+      return;
+    }
+
+    const totalRemoved = (data.removed_folders || 0) + (data.removed_files || 0) + (data.removed_keys || 0);
+    if (data.success && totalRemoved > 0) {
       showToast(`Deep Clean concluído! ${data.cleaned_formatted} recuperados (${data.removed_folders + data.removed_files} itens e ${data.removed_keys} chaves).`, "success");
       await loadHistoryStats();
       await loadInstalledPrograms();
     } else if (data.errors && data.errors.length > 0) {
       showToast(data.errors[0], "error");
     } else {
-      showToast("Não foi possível eliminar algumas sobras.", "error");
+      showToast("As sobras selecionadas já foram removidas do sistema.", "info");
+      await loadInstalledPrograms();
     }
   } catch (e) {
     showToast("Erro ao processar Deep Clean.", "error");

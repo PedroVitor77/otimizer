@@ -460,7 +460,10 @@ STOPWORDS_LEFTOVERS = {
 GENERIC_WORDS_LEFTOVERS = {
     "user", "data", "free", "tool", "tools", "player", "game", "games",
     "pro", "home", "main", "live", "view", "web", "net", "core", "code",
-    "beta", "alpha", "pack", "plus"
+    "beta", "alpha", "pack", "plus", "launcher", "manager", "installer", "install",
+    "setup", "update", "updater", "service", "client", "helper", "engine",
+    "runtime", "driver", "suite", "software", "desktop", "assistant", "studio",
+    "community"
 }
 
 PROTECTED_NAMES_LEFTOVERS = {
@@ -804,7 +807,7 @@ def _delete_reg_key_recursive(root_key, subkey_path: str, full_display_path: str
 def clean_app_leftovers(
     folders: List[str],
     files: List[str],
-    registry_keys: List[Dict[str, str]],
+    registry_keys: List[Dict[str, Any]],
     app_name: str = "",
 ) -> Dict[str, Any]:
     """Move leftover folders/files to Recycle Bin and delete leftover registry keys."""

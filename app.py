@@ -92,7 +92,7 @@ from core.updater import (
 psutil.cpu_percent(interval=None)
 psutil.cpu_percent(interval=None, percpu=True)
 
-app = FastAPI(title="PulsePC Otimizador Pro", version="1.3.4")
+app = FastAPI(title="PulsePC Otimizador Pro", version="1.3.5")
 
 LOCAL_HOSTNAMES = {"127.0.0.1", "localhost"}
 
@@ -201,7 +201,7 @@ class LeftoversScanRequest(BaseModel):
 class LeftoversCleanRequest(BaseModel):
     folders: List[str] = []
     files: List[str] = []
-    registry_keys: List[Dict[str, str]] = []
+    registry_keys: List[Dict[str, Any]] = []
     app_name: str = ""
 
 
