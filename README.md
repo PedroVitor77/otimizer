@@ -4,7 +4,17 @@ Aplicativo Desktop para Windows com interface gráfica moderna (Dark Mode via We
 
 ---
 
-## 🚀 Como Iniciar o Programa
+## 📥 Download do Instalador
+
+Para instalar o aplicativo no Windows sem precisar de Python:
+
+👉 **[Baixar PulsePC_Setup.exe (v1.0.0)](https://github.com/PedroVitor77/otimizer/releases/latest/download/PulsePC_Setup.exe)**
+
+Ou acesse a página de releases: [GitHub Releases v1.0.0](https://github.com/PedroVitor77/otimizer/releases/tag/v1.0.0)
+
+---
+
+## 🚀 Como Iniciar o Programa (Modo Desenvolvedor)
 
 ### Opção 1: Atalho de 1 Clique (Recomendado)
 Dê dois cliques no arquivo:
