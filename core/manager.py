@@ -2,8 +2,10 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import re
 import winreg
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+import send2trash
 
 import psutil
 
@@ -377,6 +379,311 @@ def launch_uninstaller(uninstall_string: str, app_name: str = "") -> Dict[str, A
         }
     except Exception as e:
         return {"success": False, "message": f"Erro ao abrir desinstalador: {str(e)}"}
+
+
+
+
+# --- DEEP CLEAN / LEFTOVER SCANNER (Revo Uninstaller style) ---
+STOPWORDS_LEFTOVERS = {
+    "corporation", "corp", "inc", "ltd", "gmbh", "software", "system",
+    "installer", "uninstaller", "edition", "x64", "x86", "win64", "win32",
+    "setup", "client", "desktop", "application", "app", "community",
+    "professional", "release", "update", "updater", "service", "services",
+    "microsoft", "windows", "for", "the", "and", "version", "portable"
+}
+
+GENERIC_WORDS_LEFTOVERS = {
+    "user", "data", "free", "tool", "tools", "player", "game", "games",
+    "pro", "home", "main", "live", "view", "web", "net", "core", "code",
+    "beta", "alpha", "pack", "plus"
+}
+
+PROTECTED_NAMES_LEFTOVERS = {
+    "windows", "system32", "syswow64", "winsxs", "system", "users",
+    "all users", "default", "public", "program files", "program files (x86)",
+    "programdata", "appdata", "localappdata", "temp", "tmp", "microsoft",
+    "desktop", "documents", "downloads", "music", "pictures", "videos",
+    "start menu", "startup", "common files", "pulsepc", "google", "edge",
+    "nvidia", "amd", "intel", "realtek"
+}
+
+
+def _extract_leftover_keywords(app_name: str, publisher: Optional[str] = None) -> List[str]:
+    clean = re.sub(r"[\(\)\[\]\{\}\-_,\.]", " ", (app_name or "").lower())
+    clean = re.sub(r"\bv?\d+(\.\d+)*\b", " ", clean)
+    words = [
+        w for w in clean.split()
+        if len(w) >= 3 and w not in STOPWORDS_LEFTOVERS and w not in GENERIC_WORDS_LEFTOVERS
+    ]
+    if publisher:
+        clean_pub = re.sub(r"[\(\)\[\]\{\}\-_,\.]", " ", publisher.lower())
+        pub_words = [
+            w for w in clean_pub.split()
+            if len(w) >= 4 and w not in STOPWORDS_LEFTOVERS and w not in GENERIC_WORDS_LEFTOVERS
+        ]
+        words.extend(pub_words)
+
+    unique_words: List[str] = []
+    for w in words:
+        if w not in unique_words and w not in PROTECTED_NAMES_LEFTOVERS:
+            unique_words.append(w)
+    return unique_words or ([app_name.lower()[:15]] if len(app_name) >= 3 else [])
+
+
+def _is_safe_leftover_target(path: Path) -> bool:
+    name = path.name.lower()
+    if name in PROTECTED_NAMES_LEFTOVERS:
+        return False
+    if len(path.parts) < 4:
+        return False
+    if path in (
+        Path(os.environ.get("SystemRoot", r"C:\Windows")),
+        Path(os.environ.get("ProgramData", r"C:\ProgramData")),
+        Path(r"C:\Program Files"),
+        Path(r"C:\Program Files (x86)"),
+        Path.home(),
+        Path(os.environ.get("APPDATA", "")),
+        Path(os.environ.get("LOCALAPPDATA", "")),
+    ):
+        return False
+    return True
+
+
+def scan_app_leftovers(app_name: str, publisher: Optional[str] = None) -> Dict[str, Any]:
+    """Scan filesystem and Windows Registry for leftover folders, files and keys for a given application."""
+    keywords = _extract_leftover_keywords(app_name, publisher)
+    if not keywords:
+        return {
+            "app_name": app_name,
+            "keywords": [],
+            "folders": [],
+            "files": [],
+            "registry_keys": [],
+            "total_bytes": 0,
+            "total_formatted": "0 B",
+            "total_items": 0,
+        }
+
+    search_dirs = [
+        Path(os.environ.get("APPDATA", "")),
+        Path(os.environ.get("LOCALAPPDATA", "")),
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs",
+        Path(os.environ.get("ProgramData", r"C:\ProgramData")),
+        Path(r"C:\Program Files"),
+        Path(r"C:\Program Files (x86)"),
+    ]
+
+    shortcut_dirs = [
+        Path.home() / "Desktop",
+        Path(os.environ.get("PUBLIC", r"C:\Users\Public")) / "Desktop",
+        Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs",
+        Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "Microsoft" / "Windows" / "Start Menu" / "Programs",
+    ]
+
+    found_folders: List[Dict[str, Any]] = []
+    found_files: List[Dict[str, Any]] = []
+    seen_paths = set()
+    total_bytes = 0
+
+    def _matches_keywords(text: str) -> bool:
+        t_low = text.lower()
+        for kw in keywords:
+            if re.search(r"\b" + re.escape(kw) + r"\b", t_low):
+                return True
+            if len(kw) >= 5 and kw in t_low:
+                return True
+        return False
+
+    # 1. Search directories for dedicated app folders
+    for base in search_dirs:
+        if not base.exists():
+            continue
+        try:
+            with os.scandir(str(base)) as it:
+                for entry in it:
+                    if not _matches_keywords(entry.name):
+                        continue
+                    p = Path(entry.path)
+                    if not _is_safe_leftover_target(p):
+                        continue
+                    if str(p) in seen_paths:
+                        continue
+                    seen_paths.add(str(p))
+
+                    if entry.is_dir(follow_symlinks=False):
+                        try:
+                            sz = sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+                        except Exception:
+                            sz = 0
+                        total_bytes += sz
+                        found_folders.append({
+                            "path": str(p),
+                            "name": entry.name,
+                            "size_bytes": sz,
+                            "size_formatted": format_bytes(sz),
+                        })
+                    elif entry.is_file(follow_symlinks=False):
+                        try:
+                            sz = entry.stat().st_size
+                        except Exception:
+                            sz = 0
+                        total_bytes += sz
+                        found_files.append({
+                            "path": str(p),
+                            "name": entry.name,
+                            "size_bytes": sz,
+                            "size_formatted": format_bytes(sz),
+                        })
+        except Exception:
+            continue
+
+    # 2. Search shortcut links (.lnk)
+    for s_dir in shortcut_dirs:
+        if not s_dir.exists():
+            continue
+        try:
+            for item in s_dir.rglob("*.lnk"):
+                if _matches_keywords(item.stem) and str(item) not in seen_paths:
+                    seen_paths.add(str(item))
+                    sz = item.stat().st_size if item.exists() else 0
+                    total_bytes += sz
+                    found_files.append({
+                        "path": str(item),
+                        "name": item.name,
+                        "size_bytes": sz,
+                        "size_formatted": format_bytes(sz),
+                    })
+        except Exception:
+            continue
+
+    # 3. Search Windows Registry
+    registry_roots = [
+        (winreg.HKEY_CURRENT_USER, r"Software", "HKCU\\Software"),
+        (winreg.HKEY_LOCAL_MACHINE, r"Software", "HKLM\\Software"),
+        (winreg.HKEY_LOCAL_MACHINE, r"Software\WOW6432Node", "HKLM\\Software\\WOW6432Node"),
+    ]
+    found_keys: List[Dict[str, str]] = []
+    for root, subkey, prefix in registry_roots:
+        try:
+            with winreg.OpenKey(root, subkey, 0, winreg.KEY_READ) as k:
+                subkeys_cnt, _, _ = winreg.QueryInfoKey(k)
+                for i in range(subkeys_cnt):
+                    sname = winreg.EnumKey(k, i)
+                    s_lower = sname.lower()
+                    if s_lower in PROTECTED_NAMES_LEFTOVERS or s_lower in ("classes", "policies", "clients", "registeredapplications"):
+                        continue
+                    if _matches_keywords(sname):
+                        found_keys.append({
+                            "display": f"{prefix}\\{sname}",
+                            "root_name": prefix.split("\\")[0],
+                            "subkey": f"{subkey}\\{sname}",
+                        })
+        except Exception:
+            continue
+
+    found_folders.sort(key=lambda x: x["size_bytes"], reverse=True)
+    total_items = len(found_folders) + len(found_files) + len(found_keys)
+
+    return {
+        "app_name": app_name,
+        "keywords": keywords,
+        "folders": found_folders,
+        "files": found_files,
+        "registry_keys": found_keys,
+        "total_bytes": total_bytes,
+        "total_formatted": format_bytes(total_bytes),
+        "total_items": total_items,
+    }
+
+
+def _delete_reg_key_recursive(root_key, subkey_path: str) -> bool:
+    try:
+        with winreg.OpenKey(root_key, subkey_path, 0, winreg.KEY_ALL_ACCESS) as k:
+            while True:
+                try:
+                    child = winreg.EnumKey(k, 0)
+                    _delete_reg_key_recursive(root_key, f"{subkey_path}\\{child}")
+                except OSError:
+                    break
+        winreg.DeleteKey(root_key, subkey_path)
+        return True
+    except Exception:
+        return False
+
+
+def clean_app_leftovers(
+    folders: List[str],
+    files: List[str],
+    registry_keys: List[Dict[str, str]],
+    app_name: str = "",
+) -> Dict[str, Any]:
+    """Move leftover folders/files to Recycle Bin and delete leftover registry keys."""
+    cleaned_bytes = 0
+    removed_folders = 0
+    removed_files = 0
+    removed_keys = 0
+    errors: List[str] = []
+
+    # 1. Clean folders
+    for f_str in folders:
+        p = Path(f_str)
+        if not p.exists() or not _is_safe_leftover_target(p):
+            continue
+        try:
+            sz = sum(f.stat().st_size for f in p.rglob("*") if f.is_file()) if p.is_dir() else 0
+            send2trash.send2trash(str(p))
+            cleaned_bytes += sz
+            removed_folders += 1
+        except Exception as e:
+            errors.append(f"Pasta {p.name}: {str(e)}")
+
+    # 2. Clean files & shortcuts
+    for f_str in files:
+        p = Path(f_str)
+        if not p.exists() or not _is_safe_leftover_target(p):
+            continue
+        try:
+            sz = p.stat().st_size if p.is_file() else 0
+            send2trash.send2trash(str(p))
+            cleaned_bytes += sz
+            removed_files += 1
+        except Exception as e:
+            errors.append(f"Arquivo {p.name}: {str(e)}")
+
+    # 3. Clean registry keys
+    for rk in registry_keys:
+        root_name = rk.get("root_name", "")
+        subkey = rk.get("subkey", "")
+        if not subkey or "microsoft" in subkey.lower() or "windows" in subkey.lower():
+            continue
+        root = winreg.HKEY_CURRENT_USER if root_name == "HKCU" else winreg.HKEY_LOCAL_MACHINE
+        if _delete_reg_key_recursive(root, subkey):
+            removed_keys += 1
+        else:
+            errors.append(f"Chave {rk.get('display', subkey)}: Permissão negada ou chave não encontrada")
+
+    total_removed = removed_folders + removed_files + removed_keys
+    if total_removed > 0:
+        record_action(
+            action_type="leftovers_clean",
+            title=f"Caçador de Sobras: {app_name or 'Aplicativo'}",
+            details=(
+                f"Removidas {removed_folders} pastas, {removed_files} arquivos e {removed_keys} chaves de registro "
+                f"({format_bytes(cleaned_bytes)} recuperados)"
+            ),
+            bytes_cleaned=cleaned_bytes,
+            files_removed=removed_folders + removed_files,
+        )
+
+    return {
+        "success": True,
+        "removed_folders": removed_folders,
+        "removed_files": removed_files,
+        "removed_keys": removed_keys,
+        "cleaned_bytes": cleaned_bytes,
+        "cleaned_formatted": format_bytes(cleaned_bytes),
+        "errors": errors,
+    }
 
 
 # --- SYSTEM REPAIR & RESTORE POINT ---

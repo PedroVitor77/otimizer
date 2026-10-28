@@ -3,7 +3,9 @@ from ctypes import wintypes
 import glob
 import os
 import shutil
+import time
 from pathlib import Path
+import send2trash
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.health import format_bytes, is_admin, is_link_or_junction
@@ -120,9 +122,11 @@ def _get_app_cache_dirs() -> List[Path]:
 
 def get_junk_categories() -> List[Dict[str, Any]]:
     local_app = Path(os.environ.get("LOCALAPPDATA", ""))
+    roaming_app = Path(os.environ.get("APPDATA", ""))
     user_temp = Path(os.environ.get("TEMP", str(local_app / "Temp")))
     win_dir = Path(os.environ.get("SystemRoot", r"C:\Windows"))
     prog_data = Path(os.environ.get("ProgramData", r"C:\ProgramData"))
+    user_home = Path.home()
 
     return [
         {
@@ -220,6 +224,47 @@ def get_junk_categories() -> List[Dict[str, Any]]:
             "requires_admin": False,
             "default_checked": True,
             "paths": [],
+            "patterns": [],
+        },
+        {
+            "id": "dev_cache",
+            "name": "Caches de Desenvolvimento (Pip, Npm, Yarn, NuGet, Cargo)",
+            "description": "Caches de pacotes baixados por gerenciadores de código (Pip, Npm, Yarn, NuGet, Cargo, Gradle).",
+            "safe": True,
+            "requires_admin": False,
+            "default_checked": True,
+            "paths": [
+                p for p in [
+                    local_app / "pip" / "cache",
+                    roaming_app / "npm-cache",
+                    local_app / "Yarn" / "Cache",
+                    user_home / ".nuget" / "packages",
+                    local_app / "NuGet" / "v3-cache",
+                    user_home / ".cargo" / "registry" / "cache",
+                    user_home / ".gradle" / "caches",
+                    local_app / "pypoetry" / "cache",
+                ] if p.exists()
+            ],
+            "patterns": [],
+        },
+        {
+            "id": "creator_cache",
+            "name": "Caches de Criador de Conteúdo & Mídia (Adobe, CapCut, DaVinci, OBS)",
+            "description": "Arquivos de renderização em cache, previews e logs pesados de editores de vídeo e gravação.",
+            "safe": True,
+            "requires_admin": False,
+            "default_checked": True,
+            "paths": [
+                p for p in [
+                    roaming_app / "Adobe" / "Common" / "Media Cache Files",
+                    roaming_app / "Adobe" / "Common" / "Media Cache",
+                    local_app / "CapCut" / "User Data" / "Cache",
+                    local_app / "CapCut" / "User Data" / "Logs",
+                    roaming_app / "Blackmagic Design" / "DaVinci Resolve" / "Support" / "CrashReports",
+                    roaming_app / "obs-studio" / "logs",
+                    roaming_app / "obs-studio" / "crashes",
+                ] if p.exists()
+            ],
             "patterns": [],
         },
     ]
@@ -460,4 +505,106 @@ def clean_junk(selected_ids: List[str], record_in_history: bool = True) -> Dict[
         "skipped_no_admin": [d["name"] for d in details_by_cat if d["skipped_no_admin"]],
         "is_admin": admin,
         "categories": details_by_cat,
+    }
+
+
+def scan_inactive_node_modules(
+    search_roots: Optional[List[str]] = None,
+    days_inactive: int = 30,
+) -> Dict[str, Any]:
+    """Scan developer project folders for node_modules that have not been modified in > X days."""
+    user_home = Path.home()
+    if not search_roots:
+        roots = [
+            user_home / "Desktop",
+            user_home / "Documents",
+            user_home / "projects",
+            user_home / "source" / "repos",
+            user_home / "workspace",
+            user_home / "dev",
+        ]
+    else:
+        roots = [Path(r) for r in search_roots]
+
+    cutoff_time = time.time() - (days_inactive * 86400)
+    found_projects: List[Dict[str, Any]] = []
+    total_bytes = 0
+
+    for r in roots:
+        if not r.exists():
+            continue
+        base_depth = len(r.parts)
+        for root, dirs, files in os.walk(str(r)):
+            # Ignore VCS and cache dirs
+            dirs[:] = [d for d in dirs if d not in (".git", ".svn", ".gemini", "AppData", "$RECYCLE.BIN", ".idea", ".vscode")]
+            if "node_modules" in dirs:
+                nm_path = Path(root) / "node_modules"
+                dirs.remove("node_modules")  # Do not recurse into node_modules
+                try:
+                    mtime = nm_path.stat().st_mtime
+                    pkg_json = Path(root) / "package.json"
+                    if pkg_json.exists():
+                        mtime = max(mtime, pkg_json.stat().st_mtime)
+
+                    if mtime < cutoff_time:
+                        sz = sum(f.stat().st_size for f in nm_path.rglob("*") if f.is_file())
+                        total_bytes += sz
+                        days_old = round((time.time() - mtime) / 86400, 1)
+                        found_projects.append({
+                            "project_name": Path(root).name,
+                            "project_dir": root,
+                            "path": str(nm_path),
+                            "days_inactive": days_old,
+                            "size_bytes": sz,
+                            "size_formatted": format_bytes(sz),
+                        })
+                except Exception:
+                    pass
+
+            cur_depth = len(Path(root).parts) - base_depth
+            if cur_depth >= 4:
+                dirs.clear()
+
+    found_projects.sort(key=lambda x: x["size_bytes"], reverse=True)
+    return {
+        "projects": found_projects,
+        "total_projects": len(found_projects),
+        "total_bytes": total_bytes,
+        "total_formatted": format_bytes(total_bytes),
+    }
+
+
+def clean_inactive_node_modules(paths: List[str]) -> Dict[str, Any]:
+    """Move selected inactive node_modules folders to the Windows Recycle Bin safely."""
+    cleaned_bytes = 0
+    removed_count = 0
+    errors: List[str] = []
+
+    for p_str in paths:
+        p = Path(p_str)
+        if not p.exists() or p.name.lower() != "node_modules":
+            continue
+        try:
+            sz = sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+            send2trash.send2trash(str(p))
+            cleaned_bytes += sz
+            removed_count += 1
+        except Exception as e:
+            errors.append(f"{p.parent.name}: {str(e)}")
+
+    if removed_count > 0:
+        record_action(
+            action_type="cleaner",
+            title="Limpeza de node_modules Inativos",
+            details=f"Removidas {removed_count} pastas node_modules inativas ({format_bytes(cleaned_bytes)} recuperados)",
+            bytes_cleaned=cleaned_bytes,
+            files_removed=removed_count,
+        )
+
+    return {
+        "success": True,
+        "removed_count": removed_count,
+        "cleaned_bytes": cleaned_bytes,
+        "cleaned_formatted": format_bytes(cleaned_bytes),
+        "errors": errors,
     }

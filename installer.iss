@@ -2,7 +2,7 @@
 ; Criado para distribuicao independente no Windows 10/11
 
 #define MyAppName "PulsePC Pro"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.2.0"
 #define MyAppPublisher "Pedro Vitor"
 #define MyAppURL "https://github.com/PedroVitor77/otimizer"
 #define MyAppExeName "PulsePC.exe"

@@ -44,12 +44,13 @@ from pydantic import BaseModel
 import psutil
 import uvicorn
 
-from core.cleaner import clean_junk, scan_junk
+from core.cleaner import clean_junk, scan_junk, clean_inactive_node_modules, scan_inactive_node_modules
 from core.health import format_bytes, get_hardware_specs, get_realtime_metrics, is_admin
 from core.games import catalog as games_catalog, estimate_all as estimate_games
 from core.history import load_history
 from core.jobs import cancel_job, get_job, start_job
 from core.manager import (
+    clean_app_leftovers,
     create_restore_point,
     get_installed_programs,
     get_processes,
@@ -57,6 +58,7 @@ from core.manager import (
     kill_process,
     launch_uninstaller,
     run_repair_tool,
+    scan_app_leftovers,
     toggle_startup_item,
 )
 from core.optimizer import (
@@ -90,7 +92,7 @@ from core.updater import (
 psutil.cpu_percent(interval=None)
 psutil.cpu_percent(interval=None, percpu=True)
 
-app = FastAPI(title="PulsePC Otimizador Pro", version="1.1.0")
+app = FastAPI(title="PulsePC Otimizador Pro", version="1.2.0")
 
 LOCAL_HOSTNAMES = {"127.0.0.1", "localhost"}
 
@@ -189,6 +191,22 @@ class GameBoosterToggleRequest(BaseModel):
 class GameBoosterBoostRequest(BaseModel):
     pid: int
     title: Optional[str] = None
+
+
+class LeftoversScanRequest(BaseModel):
+    app_name: str
+    publisher: Optional[str] = ""
+
+
+class LeftoversCleanRequest(BaseModel):
+    folders: List[str] = []
+    files: List[str] = []
+    registry_keys: List[Dict[str, str]] = []
+    app_name: str = ""
+
+
+class NodeModulesCleanRequest(BaseModel):
+    paths: List[str]
 
 
 # --- Routes ---
@@ -436,6 +454,26 @@ def api_get_programs():
 @app.post("/api/manager/uninstall")
 def api_uninstall_program(req: UninstallRequest):
     return launch_uninstaller(req.uninstall_string, req.app_name)
+
+
+@app.post("/api/manager/leftovers/scan")
+def api_scan_leftovers(req: LeftoversScanRequest):
+    return scan_app_leftovers(req.app_name, req.publisher)
+
+
+@app.post("/api/manager/leftovers/clean")
+def api_clean_leftovers(req: LeftoversCleanRequest):
+    return clean_app_leftovers(req.folders, req.files, req.registry_keys, req.app_name)
+
+
+@app.get("/api/cleaner/dev/node-modules")
+def api_scan_node_modules(days_inactive: int = 30):
+    return scan_inactive_node_modules(days_inactive=days_inactive)
+
+
+@app.post("/api/cleaner/dev/node-modules/clean")
+def api_clean_node_modules(req: NodeModulesCleanRequest):
+    return clean_inactive_node_modules(req.paths)
 
 
 @app.post("/api/repair/restore-point")

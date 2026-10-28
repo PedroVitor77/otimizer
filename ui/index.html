@@ -383,6 +383,32 @@
             Clique no botão <strong>"Analisar Arquivos Inúteis"</strong> acima para calcular quanto espaço pode ser recuperado com segurança.
           </div>
         </div>
+
+        <!-- Card Dev: Caçador de node_modules Inativos -->
+        <div class="card" style="margin-top:20px; background:linear-gradient(145deg, rgba(20,24,22,0.9) 0%, rgba(13,16,14,0.95) 100%); border:1px solid rgba(16,185,129,0.25);">
+          <div class="card-header" style="align-items:flex-start;">
+            <div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span class="card-title" style="font-size:15px;">🧹 Limpador Dev: Caçador de node_modules Inativos</span>
+                <span class="badge badge-cyan">Projetos Antigos (>30 dias)</span>
+              </div>
+              <div class="card-subtitle">Localiza pastas node_modules pesadas esquecidas em projetos que você não mexe há mais de 30 dias para liberar gigabytes de espaço.</div>
+            </div>
+            <button class="btn btn-secondary" id="btn-scan-nodemodules" onclick="scanNodeModulesNow()">
+              Escanear Projetos
+            </button>
+          </div>
+
+          <div id="nodemodules-results" style="display:none; margin-top:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <span id="nodemodules-summary" style="font-size:12.5px; font-weight:600; color:var(--accent-emerald);">0 projetos encontrados</span>
+              <button class="btn btn-danger btn-sm" id="btn-clean-nodemodules" onclick="cleanSelectedNodeModules()">Mover Selecionados para a Lixeira</button>
+            </div>
+            <div id="nodemodules-list" style="max-height:220px; overflow-y:auto; display:flex; flex-direction:column; gap:6px;">
+              <!-- Populated by JS -->
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- ================= TAB 3: ARQUIVOS GRANDES ================= -->
@@ -904,6 +930,35 @@
       </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeBoostProcessModal()">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+    <!-- Deep Clean Leftovers Modal (Revo Uninstaller style) -->
+  <div id="leftovers-modal-backdrop" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" style="width:min(640px, 100%);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <h2 class="modal-title" style="font-size:18px;" id="leftovers-modal-title">🧹 Caçador de Sobras (Deep Clean)</h2>
+          <span class="badge badge-green" id="leftovers-count-badge">0 sobras</span>
+        </div>
+        <button class="btn btn-secondary" onclick="closeLeftoversModal()" style="padding:4px 8px; font-size:12px;">✕</button>
+      </div>
+      <p class="modal-message" id="leftovers-modal-desc" style="margin-bottom:14px;">
+        Varredura de pastas residuais, arquivos de cache e chaves de registro deixadas para trás no sistema.
+      </p>
+
+      <!-- Results list with checkboxes -->
+      <div id="leftovers-list" style="max-height:300px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; margin-bottom:16px;">
+        <!-- Populated by JS -->
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--border-color); padding-top:14px;" class="modal-actions">
+        <span id="leftovers-total-size" style="font-weight:700; color:var(--accent-emerald); font-size:13.5px;">Total selecionado: 0 B</span>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-secondary" onclick="closeLeftoversModal()">Cancelar</button>
+          <button class="btn btn-danger" id="btn-confirm-clean-leftovers" onclick="cleanSelectedLeftovers()">Eliminar Sobras (Lixeira)</button>
+        </div>
       </div>
     </div>
   </div>
