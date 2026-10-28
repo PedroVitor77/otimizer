@@ -2,7 +2,7 @@
 ; Criado para distribuicao independente no Windows 10/11
 
 #define MyAppName "PulsePC Pro"
-#define MyAppVersion "1.3.3"
+#define MyAppVersion "1.3.4"
 #define MyAppPublisher "Pedro Vitor"
 #define MyAppURL "https://github.com/PedroVitor77/otimizer"
 #define MyAppExeName "PulsePC.exe"
@@ -20,8 +20,9 @@ DefaultDirName={autopf}\PulsePC
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 LicenseFile=
-; Permite instalar como administrador ou apenas para o usuario atual
-PrivilegesRequiredOverridesAllowed=dialog
+; Exige privilegios de administrador para operacoes de sistema e limpeza profunda
+PrivilegesRequired=admin
+PrivilegesRequiredOverridesAllowed=commandline
 OutputBaseFilename=PulsePC_Setup
 OutputDir=installer_output
 SetupIconFile=assets\pulsepc.ico

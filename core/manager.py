@@ -1,10 +1,13 @@
+import ctypes
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
-import re
-import winreg
+import tempfile
+import time
 from typing import Any, Dict, List, Optional
+import winreg
 import send2trash
 
 import psutil
@@ -706,24 +709,96 @@ def scan_app_leftovers(app_name: str, publisher: Optional[str] = None) -> Dict[s
     }
 
 
-def _delete_reg_key_recursive(root_key, subkey_path: str) -> bool:
-    try:
-        with winreg.OpenKey(root_key, subkey_path, 0, winreg.KEY_ALL_ACCESS) as k:
-            while True:
-                try:
-                    child = winreg.EnumKey(k, 0)
-                    if not _delete_reg_key_recursive(root_key, f"{subkey_path}\\{child}"):
-                        break
-                except OSError:
-                    break
-        winreg.DeleteKey(root_key, subkey_path)
-        return True
-    except Exception:
+def _reg_key_exists(root_key, subkey_path: str) -> bool:
+    subkey_clean = subkey_path.strip("\\")
+    for flags in (winreg.KEY_READ, winreg.KEY_READ | winreg.KEY_WOW64_64KEY, winreg.KEY_READ | winreg.KEY_WOW64_32KEY):
         try:
-            winreg.DeleteKeyEx(root_key, subkey_path, winreg.KEY_WOW64_64KEY, 0)
+            with winreg.OpenKey(root_key, subkey_clean, 0, flags):
+                return True
+        except OSError:
+            pass
+    return False
+
+
+def _delete_reg_key_recursive(root_key, subkey_path: str, full_display_path: str = "", allow_uac: bool = True) -> bool:
+    """Recursively delete a Windows Registry key, with fallback to reg.exe and optional UAC elevation."""
+    subkey_clean = subkey_path.strip("\\")
+    if not _reg_key_exists(root_key, subkey_clean):
+        return True
+
+    # 1. Native winreg recursive deletion
+    def _py_del(hkey, sub: str) -> bool:
+        for flag in (winreg.KEY_ALL_ACCESS, winreg.KEY_ALL_ACCESS | winreg.KEY_WOW64_64KEY, winreg.KEY_ALL_ACCESS | winreg.KEY_WOW64_32KEY):
+            try:
+                with winreg.OpenKey(hkey, sub, 0, flag) as k:
+                    while True:
+                        try:
+                            child = winreg.EnumKey(k, 0)
+                            if not _py_del(hkey, f"{sub}\\{child}"):
+                                break
+                        except OSError:
+                            break
+                for del_flag in (0, winreg.KEY_WOW64_64KEY, winreg.KEY_WOW64_32KEY):
+                    try:
+                        if del_flag == 0:
+                            winreg.DeleteKey(hkey, sub)
+                        else:
+                            winreg.DeleteKeyEx(hkey, sub, del_flag, 0)
+                        return True
+                    except OSError:
+                        pass
+            except OSError:
+                pass
+        return False
+
+    try:
+        if _py_del(root_key, subkey_clean) and not _reg_key_exists(root_key, subkey_clean):
             return True
-        except Exception:
-            return False
+    except Exception:
+        pass
+
+    # 2. Try silent reg.exe delete (succeeds if running as Admin or key is writable)
+    target_path = full_display_path.strip()
+    if not target_path:
+        root_prefix = "HKCU" if root_key == winreg.HKEY_CURRENT_USER else "HKLM"
+        target_path = f"{root_prefix}\\{subkey_clean}"
+
+    CREATE_NO_WINDOW = 0x08000000
+    try:
+        res = subprocess.run(
+            ["reg.exe", "delete", target_path, "/f"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            creationflags=CREATE_NO_WINDOW,
+        )
+        if res.returncode == 0 or not _reg_key_exists(root_key, subkey_clean):
+            return True
+    except Exception:
+        pass
+
+    if not allow_uac:
+        return False
+
+    # 3. Elevate via UAC if allowed
+    try:
+        res_code = ctypes.windll.shell32.ShellExecuteW(
+            None,
+            "runas",
+            "reg.exe",
+            f'delete "{target_path}" /f',
+            None,
+            0,  # SW_HIDE
+        )
+        if res_code > 32:
+            for _ in range(25):
+                time.sleep(0.1)
+                if not _reg_key_exists(root_key, subkey_clean):
+                    return True
+    except Exception:
+        pass
+
+    return not _reg_key_exists(root_key, subkey_clean)
 
 
 def clean_app_leftovers(
@@ -746,7 +821,10 @@ def clean_app_leftovers(
             continue
         try:
             sz = sum(f.stat().st_size for f in p.rglob("*") if f.is_file()) if p.is_dir() else 0
-            send2trash.send2trash(str(p))
+            try:
+                send2trash.send2trash(str(p))
+            except Exception:
+                shutil.rmtree(str(p), ignore_errors=False)
             cleaned_bytes += sz
             removed_folders += 1
         except Exception as e:
@@ -759,16 +837,21 @@ def clean_app_leftovers(
             continue
         try:
             sz = p.stat().st_size if p.is_file() else 0
-            send2trash.send2trash(str(p))
+            try:
+                send2trash.send2trash(str(p))
+            except Exception:
+                p.unlink()
             cleaned_bytes += sz
             removed_files += 1
         except Exception as e:
             errors.append(f"Arquivo {p.name}: {str(e)}")
 
     # 3. Clean registry keys
+    pending_reg: List[Dict[str, Any]] = []
     for rk in registry_keys:
         root_name = rk.get("root_name", "")
         subkey = rk.get("subkey", "")
+        disp = rk.get("display") or f"{root_name}\\{subkey}"
         if not subkey:
             continue
         sub_low = subkey.lower().strip("\\")
@@ -779,10 +862,52 @@ def clean_app_leftovers(
         if not is_uninstall_subkey and ("microsoft" in sub_low or "windows" in sub_low):
             continue
         root = winreg.HKEY_CURRENT_USER if root_name == "HKCU" else winreg.HKEY_LOCAL_MACHINE
-        if _delete_reg_key_recursive(root, subkey):
+
+        # Try direct deletion first (fast, silent)
+        if _delete_reg_key_recursive(root, subkey, full_display_path=disp, allow_uac=False):
             removed_keys += 1
         else:
-            errors.append(f"Chave {rk.get('display', subkey)}: Permissão negada (execute como Administrador) ou chave não encontrada")
+            pending_reg.append({
+                "root": root,
+                "subkey": subkey,
+                "display": disp,
+                "root_name": root_name,
+            })
+
+    # If some keys require administrative elevation, batch them in a single UAC prompt
+    if pending_reg:
+        reg_cmds = [f'reg delete "{item["display"]}" /f' for item in pending_reg]
+        try:
+            with tempfile.NamedTemporaryFile("w", suffix=".bat", delete=False, encoding="utf-8") as tf:
+                tf.write("@echo off\n" + "\n".join(reg_cmds) + "\nexit /b 0\n")
+                bat_path = tf.name
+
+            res_code = ctypes.windll.shell32.ShellExecuteW(
+                None,
+                "runas",
+                "cmd.exe",
+                f'/c "{bat_path}"',
+                None,
+                0,  # SW_HIDE
+            )
+            if res_code > 32:
+                # Wait up to 3 seconds for batch completion
+                for _ in range(30):
+                    time.sleep(0.1)
+                    if all(not _reg_key_exists(item["root"], item["subkey"]) for item in pending_reg):
+                        break
+            try:
+                os.remove(bat_path)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        for item in pending_reg:
+            if not _reg_key_exists(item["root"], item["subkey"]):
+                removed_keys += 1
+            else:
+                errors.append(f"Chave {item['display']}: Permissão negada no Registro do Windows (execute como Administrador)")
 
     total_removed = removed_folders + removed_files + removed_keys
     if total_removed > 0:
