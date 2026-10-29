@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 import urllib.error
 import urllib.request
 
-CURRENT_VERSION = "1.5.1"
+CURRENT_VERSION = "1.6.0"
 GITHUB_REPO = "PedroVitor77/otimizer"
 
 # The installer is only ever downloaded from GitHub. Release assets redirect to GitHub's CDN hosts.
