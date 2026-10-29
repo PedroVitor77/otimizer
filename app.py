@@ -580,7 +580,10 @@ def api_game_running_candidates():
 def api_game_select_process(req: Dict[str, Any]):
     from core.game_booster import booster
     from core.game_monitor import optimize_game_session
-    pid = int(req.get("pid", 0))
+    try:
+        pid = int(req.get("pid", 0))
+    except (TypeError, ValueError):
+        pid = 0
     title = req.get("name")
     if not pid:
         return {"success": False, "error": "PID inválido"}

@@ -58,18 +58,6 @@ function switchTab(tabId) {
   } else if (tabId === "tab-repair") {
     loadHardwareSpecs();
     loadBatteryHealth();
-    setTimeout(() => checkUpdates(true), 3500);
-  setTimeout(async () => {
-    try {
-      const r = await fetch('/api/software-updater/scan');
-      const d = await r.json();
-      const b = document.getElementById('badge-upgrades-count');
-      if (b && d.total > 0) {
-        b.textContent = d.total;
-        b.style.display = 'inline-block';
-      }
-    } catch(e) {}
-  }, 4500);
     loadHistoryStats();
   }
 }
@@ -1255,7 +1243,9 @@ async function pollGamerTelemetry() {
       }
       if (titleEl) titleEl.textContent = game.name;
       if (descEl) {
-        descEl.textContent = `Processo ${game.exe_name || ""} • Prioridade Alta • CPU: ${game.game_cpu_percent || 0}% • RAM: ${game.game_ram_mb || 0} MB`;
+        const cpuTxt = game.game_cpu_percent != null ? `${game.game_cpu_percent}%` : "--";
+        const ramTxt = game.game_ram_mb != null ? `${game.game_ram_mb} MB` : "--";
+        descEl.textContent = `Processo ${game.exe_name || ""} • CPU: ${cpuTxt} • RAM: ${ramTxt}`;
       }
     } else {
       if (statusBadge) {
@@ -1275,25 +1265,26 @@ async function pollGamerTelemetry() {
     const lowDisp = document.getElementById("gamer-1pct-low");
     const stabTag = document.getElementById("gamer-stability-tag");
 
-    if (fpsDisp) {
-      fpsDisp.textContent = (game.active && game.fps_current) ? game.fps_current : "--";
-    }
+    // Real FPS of the running game, read with PresentMon (see core/fps_capture.py)
+    const fpsOk = game.active && game.fps_status === "running" && game.fps_current;
+    const btnFpsAdmin = document.getElementById("btn-fps-admin");
+    const badgeFps = document.getElementById("gamer-stability-badge");
+    if (fpsDisp) fpsDisp.textContent = fpsOk ? game.fps_current : "--";
     if (ftDisp) {
-      ftDisp.textContent = (game.active && game.frame_time_ms) ? `Tempo de Quadro: ${game.frame_time_ms} ms` : "Tempo de Quadro: -- ms";
+      ftDisp.textContent = fpsOk
+        ? `Tempo de quadro: ${game.frame_time_ms} ms`
+        : (game.active ? (game.fps_message || "Medindo...") : "Inicie um jogo para medir o FPS.");
     }
-    if (lowDisp) {
-      lowDisp.textContent = (game.active && game.fps_1pct_low) ? `${game.fps_1pct_low} FPS` : "-- FPS";
-    }
+    if (lowDisp) lowDisp.textContent = fpsOk && game.fps_1pct_low ? `${game.fps_1pct_low} FPS` : "-- FPS";
     if (stabTag) {
-      stabTag.textContent = game.stability || "Aguardando início de jogo...";
-      if (game.active && game.fps_1pct_low >= 55) {
-        stabTag.style.color = "var(--accent-emerald)";
-      } else if (game.active) {
-        stabTag.style.color = "var(--accent-amber)";
-      } else {
-        stabTag.style.color = "var(--text-secondary)";
-      }
+      stabTag.textContent = fpsOk && game.fps_1pct_low ? (game.fps_1pct_low >= 55 ? "Estável" : "Oscilando") : "";
+      stabTag.style.color = fpsOk && game.fps_1pct_low >= 55 ? "var(--accent-emerald)" : "var(--accent-amber)";
     }
+    if (badgeFps) {
+      badgeFps.textContent = fpsOk ? "Ao vivo" : (game.fps_status === "needs_admin" ? "Requer admin" : "Aguardando");
+      badgeFps.className = fpsOk ? "badge badge-green" : (game.fps_status === "needs_admin" ? "badge badge-amber" : "badge badge-cyan");
+    }
+    if (btnFpsAdmin) btnFpsAdmin.style.display = game.active && game.fps_status === "needs_admin" ? "block" : "none";
 
     // 3. GPU & VRAM Card
     const hw = data.hardware || {};
@@ -1347,14 +1338,19 @@ async function pollGamerTelemetry() {
     const pingCf = document.getElementById("ping-cf-val");
     const pingStatus = document.getElementById("gamer-ping-status-badge");
 
-    const bestPing = ping.riot_br || ping.valve_br || ping.cloudflare || 15;
-    if (pingMain) pingMain.textContent = bestPing;
-    if (pingRiot) pingRiot.textContent = `${ping.riot_br || "--"} ms`;
-    if (pingValve) pingValve.textContent = `${ping.valve_br || "--"} ms`;
-    if (pingCf) pingCf.textContent = `${ping.cloudflare || "--"} ms`;
+    const fmtMs = (v) => (v ? `${v} ms` : "sem resposta");
+    const available = [ping.riot_br, ping.valve_br, ping.cloudflare].filter(Boolean);
+    const bestPing = available.length ? Math.min(...available) : null;
+    if (pingMain) pingMain.textContent = bestPing ?? "--";
+    if (pingRiot) pingRiot.textContent = fmtMs(ping.riot_br);
+    if (pingValve) pingValve.textContent = fmtMs(ping.valve_br);
+    if (pingCf) pingCf.textContent = fmtMs(ping.cloudflare);
 
     if (pingStatus) {
-      if (bestPing < 30) {
+      if (bestPing === null) {
+        pingStatus.textContent = "Sem resposta";
+        pingStatus.className = "badge badge-amber";
+      } else if (bestPing < 30) {
         pingStatus.textContent = "Excelente";
         pingStatus.className = "badge badge-green";
       } else if (bestPing < 60) {
@@ -3086,6 +3082,18 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   }, 1600);
   setTimeout(() => checkUpdates(true), 3500);
+  // Count of pending program updates for the badge. Once per launch: it runs `winget upgrade`.
+  setTimeout(async () => {
+    try {
+      const r = await fetch("/api/software-updater/scan");
+      const d = await r.json();
+      const b = document.getElementById("badge-upgrades-count");
+      if (b && d.total > 0) {
+        b.textContent = d.total;
+        b.style.display = "inline-block";
+      }
+    } catch (e) {}
+  }, 8000);
 });
 
 window.addEventListener("resize", drawStrip);

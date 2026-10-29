@@ -102,7 +102,7 @@ class BenchmarkRunner:
             # 1. CPU Stage (~3.5 seconds)
             with self.lock:
                 self.progress = 15
-                self.stage = "Testando CPU (Multi-core / Cálculos aritméticos)..."
+                self.stage = "Testando CPU (cálculos aritméticos)..."
 
             cpu_cores = os.cpu_count() or 4
             cpu_duration = 3.0

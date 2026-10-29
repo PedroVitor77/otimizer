@@ -230,6 +230,45 @@ def estimate_game(game: Dict[str, Any], gpu_score: float, gpu_vram: float, cpu_s
     }
 
 
+# Words that identify each game in a process/window title (lowercase).
+_TITLE_HINTS: Dict[str, List[str]] = {
+    "cs2": ["counter-strike", "cs2"], "valorant": ["valorant"], "lol": ["league of legends"],
+    "dota2": ["dota"], "fortnite": ["fortnite"], "apex": ["apex"], "warzone": ["warzone"],
+    "cod": ["call of duty", "modern warfare"], "pubg": ["pubg", "battlegrounds"],
+    "r6": ["rainbow six"], "rivals": ["marvel rivals"], "rocket": ["rocket league"],
+    "fc25": ["fc 24", "fc 25", "fc 26", "fifa", "ea sports fc"], "minecraft": ["minecraft"],
+    "roblox": ["roblox"], "gta5": ["grand theft auto v", "gta v", "gta5"], "rdr2": ["red dead"],
+    "cyberpunk": ["cyberpunk"], "witcher3": ["witcher"], "eldenring": ["elden ring"],
+    "bg3": ["baldur"], "hogwarts": ["hogwarts"], "starfield": ["starfield"], "wukong": ["wukong"],
+    "fh5": ["forza horizon"],
+}
+_hw_cache: Dict[str, Any] = {"t": 0.0, "hw": None}
+
+
+def estimate_fps_for_title(title: str) -> Optional[Dict[str, Any]]:
+    """Estimated FPS (1080p / High) for a running game, or None when the game is not in the table
+    or the graphics card is not recognized. This is an estimate from hardware, not a measurement."""
+    low = (title or "").lower()
+    game = next(
+        (g for g in GAMES if any(h in low for h in _TITLE_HINTS.get(g["id"], []))),
+        None,
+    )
+    if not game:
+        return None
+
+    import time
+    if not _hw_cache["hw"] or time.time() - _hw_cache["t"] > 120:
+        _hw_cache.update(t=time.time(), hw=detect_hardware())
+    hw = _hw_cache["hw"]
+    gpu, cpu = hw["gpu"], hw["cpu"]
+    if not gpu.get("score"):
+        return None
+    return estimate_game(
+        game, gpu["score"], gpu.get("vram") or 0, cpu.get("score") or UNKNOWN_CPU_SCORE,
+        hw["ram_gb"], "1080p", "high",
+    )
+
+
 def estimate_all(gpu_key: Optional[str], cpu_key: Optional[str], ram_gb: Optional[float],
                  resolution: str = "1080p", preset: str = "high") -> Dict[str, Any]:
     resolution = resolution if resolution in RESOLUTIONS else "1080p"

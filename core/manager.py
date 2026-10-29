@@ -5,8 +5,9 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import winreg
 import send2trash
 
@@ -498,6 +499,50 @@ def _extract_leftover_keywords(app_name: str, publisher: Optional[str] = None) -
     return unique_words or ([app_name.lower()[:15]] if len(app_name) >= 3 else [])
 
 
+# What the last scan of each app found. clean_app_leftovers only touches items listed here, so a
+# client can never ask for an arbitrary folder, file or registry key to be removed.
+_LEFTOVER_TTL_S = 30 * 60
+_leftover_lock = threading.Lock()
+_leftover_allowed: Dict[str, Dict[str, Any]] = {}
+
+# Characters that would break out of the quoted registry path in the elevated batch / reg.exe call.
+_UNSAFE_REG_CHARS = set('"%\r\n\0')
+
+
+def _norm_path(path: str) -> str:
+    return os.path.normcase(os.path.abspath(path))
+
+
+def _norm_reg(root_name: str, subkey: str) -> Tuple[str, str]:
+    return (str(root_name).upper(), str(subkey).strip("\\").lower())
+
+
+def _remember_leftover_scan(
+    app_name: str,
+    folders: List[Dict[str, Any]],
+    files: List[Dict[str, Any]],
+    keys: List[Dict[str, Any]],
+) -> None:
+    now = time.time()
+    with _leftover_lock:
+        for k in [k for k, v in _leftover_allowed.items() if now - v["ts"] > _LEFTOVER_TTL_S]:
+            del _leftover_allowed[k]
+        _leftover_allowed[(app_name or "").strip().lower()] = {
+            "ts": now,
+            "folders": {_norm_path(f["path"]) for f in folders},
+            "files": {_norm_path(f["path"]) for f in files},
+            "registry": {_norm_reg(k["root_name"], k["subkey"]) for k in keys},
+        }
+
+
+def _allowed_leftovers(app_name: str) -> Dict[str, Any]:
+    with _leftover_lock:
+        entry = _leftover_allowed.get((app_name or "").strip().lower())
+        if entry and time.time() - entry["ts"] <= _LEFTOVER_TTL_S:
+            return entry
+    return {"folders": set(), "files": set(), "registry": set()}
+
+
 def _is_safe_leftover_target(path: Path) -> bool:
     name = path.name.lower()
     if name in PROTECTED_NAMES_LEFTOVERS:
@@ -699,6 +744,7 @@ def scan_app_leftovers(app_name: str, publisher: Optional[str] = None) -> Dict[s
 
     found_folders.sort(key=lambda x: x["size_bytes"], reverse=True)
     total_items = len(found_folders) + len(found_files) + len(found_keys)
+    _remember_leftover_scan(app_name, found_folders, found_files, found_keys)
 
     return {
         "app_name": app_name,
@@ -817,46 +863,56 @@ def clean_app_leftovers(
     removed_keys = 0
     errors: List[str] = []
 
-    # 1. Clean folders
+    allowed = _allowed_leftovers(app_name)
+
+    # 1. Clean folders (Recycle Bin only: nothing is deleted permanently)
     for f_str in folders:
         p = Path(f_str)
+        if _norm_path(f_str) not in allowed["folders"]:
+            errors.append(f"Pasta ignorada (não estava no último scan): {p.name}")
+            continue
         if not p.exists() or not _is_safe_leftover_target(p):
             continue
         try:
             sz = sum(f.stat().st_size for f in p.rglob("*") if f.is_file()) if p.is_dir() else 0
-            try:
-                send2trash.send2trash(str(p))
-            except Exception:
-                shutil.rmtree(str(p), ignore_errors=False)
+            send2trash.send2trash(str(p))
             cleaned_bytes += sz
             removed_folders += 1
         except Exception as e:
-            errors.append(f"Pasta {p.name}: {str(e)}")
+            errors.append(f"Pasta {p.name}: não foi possível enviar para a Lixeira ({e})")
 
     # 2. Clean files & shortcuts
     for f_str in files:
         p = Path(f_str)
+        if _norm_path(f_str) not in allowed["files"]:
+            errors.append(f"Arquivo ignorado (não estava no último scan): {p.name}")
+            continue
         if not p.exists() or not _is_safe_leftover_target(p):
             continue
         try:
             sz = p.stat().st_size if p.is_file() else 0
-            try:
-                send2trash.send2trash(str(p))
-            except Exception:
-                p.unlink()
+            send2trash.send2trash(str(p))
             cleaned_bytes += sz
             removed_files += 1
         except Exception as e:
-            errors.append(f"Arquivo {p.name}: {str(e)}")
+            errors.append(f"Arquivo {p.name}: não foi possível enviar para a Lixeira ({e})")
 
     # 3. Clean registry keys
     pending_reg: List[Dict[str, Any]] = []
     for rk in registry_keys:
-        root_name = rk.get("root_name", "")
-        subkey = rk.get("subkey", "")
-        disp = rk.get("display") or f"{root_name}\\{subkey}"
-        if not subkey:
+        root_name = str(rk.get("root_name", "")).upper()
+        subkey = str(rk.get("subkey", "")).strip("\\")
+        if root_name not in ("HKCU", "HKLM") or not subkey:
             continue
+        leaf = subkey.split("\\")[-1]
+        if _norm_reg(root_name, subkey) not in allowed["registry"]:
+            errors.append(f"Chave ignorada (não estava no último scan): {leaf}")
+            continue
+        if _UNSAFE_REG_CHARS & set(subkey):
+            errors.append(f"Chave com caracteres inválidos ignorada: {leaf}")
+            continue
+        # Built here from the validated parts. The client's "display" text is never used.
+        disp = f"{root_name}\\{subkey}"
         sub_low = subkey.lower().strip("\\")
         is_uninstall_subkey = (
             sub_low.startswith("software\\microsoft\\windows\\currentversion\\uninstall\\")

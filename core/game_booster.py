@@ -5,7 +5,7 @@ When a game is detected:
 1. Elevates game process priority to High.
 2. Lowers priority of non-essential background processes (browsers, Discord, Spotify, updaters).
 3. Switches power plan to High / Ultimate Performance (saving the user's original plan).
-4. Cleans Standby Memory & Working Sets to avoid stuttering and micro-freezes.
+4. (The standby list is only purged when the user asks for it.)
 When the game closes:
 1. Restores the original Windows power plan.
 2. Restores lowered process priorities.
@@ -25,7 +25,6 @@ from typing import Any, Dict, List, Optional, Set
 import psutil
 
 from core.history import get_data_dir, record_action
-from core.optimizer import purge_standby_list
 
 DATA_DIR = get_data_dir()
 BOOSTER_CONFIG_FILE = DATA_DIR / "game_booster.json"
@@ -85,7 +84,6 @@ KNOWN_GAMES: Dict[str, str] = {
     "starrail.exe": "Honkai: Star Rail",
     "zenlesszonezero.exe": "Zenless Zone Zero",
     "minecraft.exe": "Minecraft",
-    "javaw.exe": "Minecraft (Java Edition)",
     "robloxplayerbeta.exe": "Roblox",
     "fallguys_client.exe": "Fall Guys",
     "deadbydaylight.exe": "Dead by Daylight",
@@ -306,14 +304,19 @@ def _find_best_performance_plan() -> Optional[str]:
                 if m:
                     return m.group(1).lower()
 
-        # Try duplicating High Performance
-        subprocess.run(
+        # The plan is hidden on this PC: duplicate it once. The copy gets a new GUID, which is
+        # the one that can be activated (and found by name on the next boost).
+        dup = subprocess.run(
             ["powercfg", "-duplicatescheme", "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"],
             capture_output=True,
+            text=True,
+            encoding="oem",
+            errors="replace",
             creationflags=subprocess.CREATE_NO_WINDOW,
             timeout=3,
         )
-        return "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
+        m = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", dup.stdout or "")
+        return m.group(1).lower() if m else None
     except Exception:
         return None
 
@@ -452,6 +455,7 @@ class GameBooster:
         self._last_catalog_refresh: float = 0.0
 
         self._load_config()
+        self._restore_pending_power_plan()
         self._refresh_games_catalog(force=True)
 
     def _load_config(self) -> None:
@@ -467,9 +471,21 @@ class GameBooster:
         try:
             DATA_DIR.mkdir(parents=True, exist_ok=True)
             with open(BOOSTER_CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump({"enabled": self.enabled}, f, indent=2)
+                json.dump({"enabled": self.enabled, "pending_power_plan": self.original_power_plan}, f, indent=2)
         except Exception:
             pass
+
+    def _restore_pending_power_plan(self) -> None:
+        """If PulsePC was closed or crashed during a boost, put the user's power plan back."""
+        try:
+            with open(BOOSTER_CONFIG_FILE, "r", encoding="utf-8") as f:
+                pending = json.load(f).get("pending_power_plan")
+        except Exception:
+            return
+        if pending:
+            _set_active_power_plan(pending)
+            self.original_power_plan = None
+            self._save_config()
 
     def start(self) -> None:
         """Start the background detector loop if not already running."""
@@ -583,6 +599,20 @@ class GameBooster:
                                 break
                     except Exception:
                         pass
+
+                # javaw/java run every Java program; it is Minecraft only when the command line says so
+                if pname in ("javaw.exe", "java.exe"):
+                    try:
+                        if "minecraft" in " ".join(proc.cmdline()).lower():
+                            return {
+                                "pid": pid,
+                                "name": "Minecraft (Java Edition)",
+                                "exe_name": proc.info["name"],
+                                "exe_path": proc.info.get("exe") or "",
+                            }
+                    except Exception:
+                        pass
+                    continue
 
                 # Pass 1: Direct match in KNOWN_GAMES
                 if pname in KNOWN_GAMES:
@@ -701,6 +731,8 @@ class GameBooster:
         switched_power = False
         if perf_plan and perf_plan != self.original_power_plan:
             switched_power = _set_active_power_plan(perf_plan)
+            if switched_power:
+                self._save_config()  # remembers original_power_plan until the boost ends
 
         # 3. Throttle background browser and updater processes
         self.throttled_pids.clear()
@@ -720,8 +752,9 @@ class GameBooster:
             except Exception:
                 continue
 
-        # 4. Clean Standby Memory List & Working Sets
-        ram_res = purge_standby_list(record_in_history=False)
+        # The standby list is NOT purged automatically: emptying it forces the game to re-read its
+        # files from disk. The manual "Purga de RAM" button is still available.
+        ram_res: Dict[str, Any] = {}
 
         started_at = time.strftime("%H:%M:%S")
         self.active_game = {
@@ -743,7 +776,6 @@ class GameBooster:
             details=(
                 f"Modo Turbo ativado automaticamente. "
                 f"Prioridade Alta: {'Sim' if elevated else 'Normal'} | "
-                f"RAM liberada: {ram_res.get('freed_mb', 0)} MB | "
                 f"Apps em 2º plano desacelerados: {len(self.throttled_pids)}"
             ),
             ram_freed_mb=ram_res.get("freed_mb", 0),
@@ -760,6 +792,7 @@ class GameBooster:
         if self.original_power_plan:
             _set_active_power_plan(self.original_power_plan)
             self.original_power_plan = None
+            self._save_config()
 
         # 2. Restore throttled processes
         restored_count = 0

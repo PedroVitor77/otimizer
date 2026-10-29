@@ -26,6 +26,9 @@ _cached_updates: Dict[str, Any] = {
     "available": False,
 }
 
+# winget ids look like "Publisher.Product" and never start with a dash
+_PACKAGE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+\-]{0,127}")
+
 _active_process: Optional[subprocess.Popen] = None
 _upgrade_state: Dict[str, Any] = {
     "status": "idle",  # idle, scanning, upgrading, finished, error, cancelled
@@ -111,11 +114,16 @@ def scan_software_updates(force: bool = False) -> Dict[str, Any]:
 
         if header_idx >= 0:
             header = lines[header_idx]
-            col_name = header.find("Name")
-            col_id = header.find("Id")
-            col_ver = header.find("Version")
-            col_avail = header.find("Available")
-            col_source = header.find("Source")
+            # The five columns are always, in order: name, id, version, available, source. Their start
+            # positions are taken from the header words, so the language of winget does not matter.
+            starts = [m.start() for m in re.finditer(r"\S+(?: \S+)*", header)]
+            if len(starts) < 4:
+                starts = []
+            col_name = starts[0] if starts else -1
+            col_id = starts[1] if len(starts) > 1 else -1
+            col_ver = starts[2] if len(starts) > 2 else -1
+            col_avail = starts[3] if len(starts) > 3 else -1
+            col_source = starts[4] if len(starts) > 4 else -1
 
             for line in lines[header_idx + 2:]:
                 sline = line.strip()
@@ -183,16 +191,26 @@ def start_software_upgrade(package_ids: Optional[List[str]] = None) -> Dict[str,
             return {
                 "success": False,
                 "message": "Uma atualização de softwares já está em andamento.",
-                "state": _upgrade_state,
+                "state": dict(_upgrade_state),
             }
 
-        # Resolve packages to upgrade
-        scan_data = scan_software_updates()
+    # Resolve packages to upgrade (can take several seconds, so it runs outside the lock)
+    scan_data = scan_software_updates()
+
+    with _updater_lock:
+        if _upgrade_state["status"] == "upgrading":
+            return {
+                "success": False,
+                "message": "Uma atualização de softwares já está em andamento.",
+                "state": dict(_upgrade_state),
+            }
         all_items = {it["id"]: it for it in scan_data.get("items", [])}
 
         targets: List[Dict[str, str]] = []
         if package_ids:
             for pid in package_ids:
+                if not isinstance(pid, str) or not _PACKAGE_ID_RE.fullmatch(pid):
+                    continue
                 if pid in all_items:
                     targets.append(all_items[pid])
                 else:

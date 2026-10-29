@@ -18,6 +18,7 @@ try:
 except Exception:
     pass
 
+from core.fps_capture import capture as fps_capture
 from core.game_booster import KNOWN_GAMES, booster
 from core.health import get_realtime_metrics, is_admin
 from core.history import record_action
@@ -25,9 +26,9 @@ from core.optimizer import purge_standby_list
 
 # Global cache for ping measurements to prevent lag
 _ping_cache: Dict[str, Any] = {
-    "riot_br": 14,
-    "valve_br": 15,
-    "cloudflare": 13,
+    "riot_br": None,
+    "valve_br": None,
+    "cloudflare": None,
     "last_check": 0,
 }
 
@@ -42,8 +43,9 @@ _hud_timer = None
 _hud_ready_event = threading.Event()
 
 
-def measure_game_ping(force: bool = False) -> Dict[str, int]:
-    """Measure real network latency to major gaming servers in Brazil (cached for 10s)."""
+def measure_game_ping(force: bool = False) -> Dict[str, Optional[int]]:
+    """Measure the real TCP connection time to Riot's and Steam's websites and Cloudflare DNS
+    (cached for 10s). A host that does not answer is reported as None, never as a made-up value."""
     global _ping_cache
     now = time.time()
     if not force and (now - _ping_cache["last_check"]) < 10.0:
@@ -53,23 +55,17 @@ def measure_game_ping(force: bool = False) -> Dict[str, int]:
             "cloudflare": _ping_cache["cloudflare"],
         }
 
-    def _tcp_ping(host: str, port: int) -> int:
+    def _tcp_ping(host: str, port: int) -> Optional[int]:
         t0 = time.perf_counter()
         try:
             with socket.create_connection((host, port), timeout=1.2):
                 return max(1, int(round((time.perf_counter() - t0) * 1000)))
         except Exception:
-            return 25
+            return None
 
     riot = _tcp_ping("br.leagueoflegends.com", 443)
     valve = _tcp_ping("store.steampowered.com", 443)
     cf = _tcp_ping("1.1.1.1", 53)
-
-    # Sanitize extremes
-    if riot > 200:
-        riot = 18
-    if valve > 200:
-        valve = 16
 
     _ping_cache["riot_br"] = riot
     _ping_cache["valve_br"] = valve
@@ -79,41 +75,23 @@ def measure_game_ping(force: bool = False) -> Dict[str, int]:
     return {"riot_br": riot, "valve_br": valve, "cloudflare": cf}
 
 
-def _estimate_live_fps(game_name: str, gpu_load: float, cpu_load: float) -> Dict[str, Any]:
-    """Calculate realistic live FPS, frame time (ms), and 1% low metrics based on game and hardware load."""
-    name_low = game_name.lower()
-    if any(k in name_low for k in ["valorant", "cs2", "counter-strike", "league", "dota"]):
-        base = 240.0
-    elif any(k in name_low for k in ["fortnite", "apex", "overwatch", "rocket"]):
-        base = 165.0
-    elif any(k in name_low for k in ["assetto", "automobilista", "ams2", "f1", "forza", "fifa", "fc 26", "fc 25", "fc 24", "ufc", "sacredfire", "pes", "efootball", "lemans"]):
-        base = 120.0
-    elif any(k in name_low for k in ["cyberpunk", "wukong", "rdr2", "elden", "last of us", "tlou", "god of war", "gow", "witcher"]):
-        base = 80.0
-    else:
-        base = 120.0
+def _game_fps_fields(pid: int) -> Dict[str, Any]:
+    """Real FPS, frame time and 1% low of the game process, read with PresentMon (see fps_capture)."""
+    fps_capture.ensure(pid)
+    return fps_capture.snapshot()
 
-    # Adjust base by current GPU and CPU stress
-    load_factor = 1.0 - (max(0, gpu_load - 85) * 0.003) - (max(0, cpu_load - 80) * 0.004)
-    # Add minor natural fluctuation (+/- 2%)
-    jitter = ((int(time.time() * 2) % 5) - 2) * 1.5
-    current_fps = max(30, int(round((base * load_factor) + jitter)))
-    frame_time = round(1000.0 / max(1, current_fps), 1)
-    one_percent_low = max(24, int(round(current_fps * 0.76)))
 
-    if one_percent_low >= 80:
-        stability = "Excelente (Sem Stuttering)"
-    elif one_percent_low >= 55:
-        stability = "Estável e Fluido"
-    else:
-        stability = "Oscilações Detectadas"
-
-    return {
-        "fps_current": current_fps,
-        "frame_time_ms": frame_time,
-        "fps_1pct_low": one_percent_low,
-        "stability": stability,
-    }
+def _process_usage(pid: int) -> Dict[str, Any]:
+    """Real CPU % (of the whole machine) and RAM of a process, or None when it cannot be read."""
+    try:
+        proc = psutil.Process(pid)
+        cores = psutil.cpu_count(logical=True) or 1
+        return {
+            "game_cpu_percent": round(proc.cpu_percent() / cores, 1),
+            "game_ram_mb": int(proc.memory_info().rss / (1024 * 1024)),
+        }
+    except Exception:
+        return {"game_cpu_percent": None, "game_ram_mb": None}
 
 
 def get_gamer_telemetry() -> Dict[str, Any]:
@@ -147,13 +125,8 @@ def get_gamer_telemetry() -> Dict[str, Any]:
 
     if active_game and active_game.get("pid"):
         pid = active_game.get("pid")
-        try:
-            proc = psutil.Process(pid)
-            game_cpu = round(proc.cpu_percent(), 1)
-            game_ram_mb = int(proc.memory_info().rss / (1024 * 1024))
-            game_title = active_game.get("name", "Jogo")
-            fps_metrics = _estimate_live_fps(game_title, gpu_load, cpu_load)
-
+        game_title = active_game.get("name", "Jogo")
+        if psutil.pid_exists(pid):
             game_data = {
                 "active": True,
                 "pid": pid,
@@ -161,21 +134,14 @@ def get_gamer_telemetry() -> Dict[str, Any]:
                 "exe_name": active_game.get("exe_name"),
                 "started_at": active_game.get("started_at"),
                 "elevated_priority": active_game.get("elevated_priority", False),
-                "game_cpu_percent": game_cpu,
-                "game_ram_mb": game_ram_mb,
-                "fps_current": fps_metrics["fps_current"],
-                "frame_time_ms": fps_metrics["frame_time_ms"],
-                "fps_1pct_low": fps_metrics["fps_1pct_low"],
-                "stability": fps_metrics["stability"],
+                **_process_usage(pid),
+                **_game_fps_fields(pid),
             }
-        except Exception:
-            game_data = None
 
     if not game_data:
         # Check if there is any candidate running right now
         detected = booster.detect_running_game()
         if detected:
-            fps_metrics = _estimate_live_fps(detected["name"], gpu_load, cpu_load)
             game_data = {
                 "active": True,
                 "pid": detected["pid"],
@@ -183,30 +149,26 @@ def get_gamer_telemetry() -> Dict[str, Any]:
                 "exe_name": detected["exe_name"],
                 "started_at": "Agora",
                 "elevated_priority": False,
-                "game_cpu_percent": 15.0,
-                "game_ram_mb": 1800,
-                "fps_current": fps_metrics["fps_current"],
-                "frame_time_ms": fps_metrics["frame_time_ms"],
-                "fps_1pct_low": fps_metrics["fps_1pct_low"],
-                "stability": fps_metrics["stability"],
+                **_process_usage(detected["pid"]),
+                **_game_fps_fields(detected["pid"]),
             }
         else:
+            fps_capture.stop()
             game_data = {
                 "active": False,
                 "name": None,
                 "fps_current": None,
-                "frame_time_ms": None,
-                "fps_1pct_low": None,
-                "stability": "Aguardando início de jogo...",
+                "fps_status": "idle",
             }
 
     # Update floating HUD if visible
     if _hud_enabled and _hud_form:
-        fps_str = f"FPS: {game_data['fps_current']}" if game_data.get("fps_current") else "FPS: Standby"
+        fps_str = f"{game_data['fps_current']} FPS" if game_data.get("fps_current") else "FPS: --"
         gpu_str = f"GPU: {gpu_temp}°C ({int(gpu_load)}%)" if gpu_temp != "--" else f"GPU: {int(gpu_load)}%"
         cpu_str = f"CPU: {int(cpu_load)}%"
         ram_str = f"RAM: {ram_used_gb} GB"
-        ping_str = f"{ping_data['riot_br']}ms"
+        pings = [v for v in (ping_data.get("riot_br"), ping_data.get("valve_br"), ping_data.get("cloudflare")) if v]
+        ping_str = f"{min(pings)}ms" if pings else "--"
         _update_hud_text(fps_str, gpu_str, cpu_str, ram_str, ping_str)
 
     return {
@@ -404,12 +366,13 @@ def _hud_ui_worker():
                 if len(game_title) > 20:
                     game_title = game_title[:18] + "..."
                 fps = gm.get("fps_current")
-                fps_txt = f"{fps} FPS" if fps else "Standby"
+                fps_txt = f"{fps} FPS" if fps else "FPS --"
                 gpu_load = hw.get("gpu_load", 0)
                 gpu_temp = hw.get("gpu_temp", "--")
                 cpu_load = hw.get("cpu_load", 0)
                 ram_gb = hw.get("ram_used_gb", 0)
-                ping_ms = pg.get("riot_br") or pg.get("valve_br") or pg.get("cloudflare") or 18
+                pings = [v for v in (pg.get("riot_br"), pg.get("valve_br"), pg.get("cloudflare")) if v]
+                ping_ms = min(pings) if pings else "--"
 
                 gpu_str = f"{gpu_temp}°C ({gpu_load}%)" if gpu_temp != "--" else f"{gpu_load}%"
 

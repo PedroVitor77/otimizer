@@ -70,3 +70,10 @@ python app.py
    - Execução guiada de `SFC /scannow`, `DISM /CheckHealth` & `/RestoreHealth` e `CHKDSK`.
    - **Ficha Técnica Completa** (CPU, Placa-Mãe, BIOS, GPU, Pentes de RAM e Discos S.M.A.R.T.) com botão de cópia rápida.
    - **Histórico Persistente** de espaço em disco e memória RAM já recuperados pelo programa.
+
+## FPS real do jogo
+
+O card "FPS do jogo" e o HUD mostram o FPS medido no jogo em execução, lido com o
+[PresentMon](https://github.com/GameTechDev/PresentMon) (Intel, licença MIT) que vem em
+`assets/tools/PresentMon.exe` (v2.6.0, assinado pela Intel). Se o Windows recusar iniciar a medição,
+o app avisa e oferece reabrir como administrador. Sem medição, o FPS aparece como `--`.

@@ -37,6 +37,7 @@ hiddenimports = [
     'core.battery',
     'core.tray',
     'core.game_monitor',
+    'core.fps_capture',
     'core.software_updater',
     'email.mime.text',
     'email.mime.multipart',
