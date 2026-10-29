@@ -38,6 +38,7 @@ _hud_context = None
 _hud_enabled = False
 _hud_thread = None
 _hud_lock = threading.Lock()
+_hud_timer = None
 _hud_ready_event = threading.Event()
 
 
@@ -85,9 +86,9 @@ def _estimate_live_fps(game_name: str, gpu_load: float, cpu_load: float) -> Dict
         base = 240.0
     elif any(k in name_low for k in ["fortnite", "apex", "overwatch", "rocket"]):
         base = 165.0
-    elif any(k in name_low for k in ["gta", "forza", "fifa", "fc 25", "fc 24", "ufc", "sacredfire", "pes", "efootball", "minecraft"]):
+    elif any(k in name_low for k in ["assetto", "automobilista", "ams2", "f1", "forza", "fifa", "fc 26", "fc 25", "fc 24", "ufc", "sacredfire", "pes", "efootball", "lemans"]):
         base = 120.0
-    elif any(k in name_low for k in ["cyberpunk", "wukong", "rdr2", "elden"]):
+    elif any(k in name_low for k in ["cyberpunk", "wukong", "rdr2", "elden", "last of us", "tlou", "god of war", "gow", "witcher"]):
         base = 80.0
     else:
         base = 120.0
@@ -276,8 +277,8 @@ def optimize_game_session(pid: Optional[int] = None) -> Dict[str, Any]:
 # ================= FLOATING HUD (OVERLAY) =================
 
 def _hud_ui_worker():
-    """Dedicated STA WinForms thread with persistent message pump for the floating HUD."""
-    global _hud_form, _hud_label, _hud_context, _hud_enabled
+    """Dedicated STA WinForms thread with persistent message pump for the floating gaming HUD."""
+    global _hud_form, _hud_label, _hud_context, _hud_enabled, _hud_timer
 
     try:
         import clr
@@ -292,12 +293,12 @@ def _hud_ui_worker():
             FormStartPosition,
             Label,
             MouseButtons,
+            Timer,
         )
-        from System.Drawing import Color, Font, FontFamily, FontStyle, Point, Size
+        from System.Drawing import Color, Font, FontFamily, FontStyle, Pen, Point, Size
 
         _hud_context = ApplicationContext()
 
-        # Win32 helpers
         user32 = ctypes.windll.user32
         user32.SetWindowPos.argtypes = [
             ctypes.c_void_p,
@@ -322,21 +323,22 @@ def _hud_ui_worker():
         f.TopMost = True
         f.FormBorderStyle = getattr(FormBorderStyle, "None")
         f.StartPosition = FormStartPosition.Manual
+        f.ShowInTaskbar = False
+        f.BackColor = Color.FromArgb(10, 14, 12)
+        f.Opacity = 0.95
+
+        hud_w = 640
+        hud_h = 44
 
         try:
             screen_w = user32.GetSystemMetrics(0)
         except Exception:
             screen_w = 1920
-        hud_w = 540
-        hud_h = 36
-        x = max(10, (screen_w - hud_w) // 2)
-        y = 20
 
+        x = max(20, (screen_w - hud_w) // 2)
+        y = 30
         f.Location = Point(x, y)
-        f.BackColor = Color.FromArgb(14, 18, 15)
-        f.Opacity = 0.94
         f.Size = Size(hud_w, hud_h)
-        f.ShowInTaskbar = False
 
         # Draggable HUD
         def on_mouse_down(sender, e):
@@ -346,21 +348,31 @@ def _hud_ui_worker():
 
         f.MouseDown += on_mouse_down
 
+        # Custom paint: Neon glowing double border
+        def on_paint(sender, e):
+            g = e.Graphics
+            pen = Pen(Color.FromArgb(0, 230, 118), 2.0)
+            g.DrawRectangle(pen, 1, 1, hud_w - 2, hud_h - 2)
+            inner_pen = Pen(Color.FromArgb(35, 0, 230, 118), 1.0)
+            g.DrawRectangle(inner_pen, 3, 3, hud_w - 6, hud_h - 6)
+
+        f.Paint += on_paint
+
         lbl = Label()
-        lbl.Text = "🎮 FPS: Standby  |  🔥 GPU: --  |  ⚡ CPU: --  |  🧠 RAM: --  |  📶 --"
-        lbl.ForeColor = Color.FromArgb(240, 248, 242)
-        lbl.Font = Font(FontFamily.GenericSansSerif, 8.8, FontStyle.Bold)
-        lbl.Location = Point(12, 9)
+        lbl.Text = "🎮 PulsePC HUD  |  ⚡ Standby  |  🔥 GPU: --  |  ⚡ CPU: --  |  🧠 RAM: --  |  📶 --"
+        lbl.ForeColor = Color.FromArgb(240, 255, 245)
+        lbl.Font = Font(FontFamily.GenericSansSerif, 9.2, FontStyle.Bold)
+        lbl.Location = Point(14, 12)
         lbl.AutoSize = True
         lbl.MouseDown += on_mouse_down
         f.Controls.Add(lbl)
 
         btn_close = Label()
         btn_close.Text = "✕"
-        btn_close.ForeColor = Color.FromArgb(170, 180, 174)
-        btn_close.Font = Font(FontFamily.GenericSansSerif, 10, FontStyle.Bold)
-        btn_close.Location = Point(hud_w - 24, 8)
-        btn_close.Size = Size(18, 20)
+        btn_close.ForeColor = Color.FromArgb(180, 200, 190)
+        btn_close.Font = Font(FontFamily.GenericSansSerif, 11, FontStyle.Bold)
+        btn_close.Location = Point(hud_w - 28, 11)
+        btn_close.Size = Size(20, 22)
         btn_close.Cursor = Cursors.Hand
         btn_close.Click += lambda s, e: toggle_floating_hud(False)
         f.Controls.Add(btn_close)
@@ -368,8 +380,52 @@ def _hud_ui_worker():
         _hud_form = f
         _hud_label = lbl
         f.Show()
-        # Ensure HWND_TOPMOST (-1)
-        user32.SetWindowPos(f.Handle.ToInt64(), -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
+
+        # Set Win32 styles: WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
+        handle = f.Handle.ToInt64()
+        cur_ex = user32.GetWindowLongW(handle, -20)
+        user32.SetWindowLongW(handle, -20, cur_ex | 0x00000008 | 0x00000080 | 0x08000000)
+        user32.SetWindowPos(handle, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0040)
+
+        # Internal 1-second autonomous timer so the overlay updates continuously
+        timer = Timer()
+        timer.Interval = 1000
+        def on_timer_tick(s, e):
+            try:
+                if not _hud_enabled or not _hud_form or _hud_form.IsDisposed:
+                    return
+                # Query telemetry directly
+                telem = get_gamer_telemetry()
+                gm = telem.get("game") or {}
+                hw = telem.get("hardware") or {}
+                pg = telem.get("ping") or {}
+
+                game_title = gm.get("name") or "PulsePC HUD"
+                if len(game_title) > 20:
+                    game_title = game_title[:18] + "..."
+                fps = gm.get("fps_current")
+                fps_txt = f"{fps} FPS" if fps else "Standby"
+                gpu_load = hw.get("gpu_load", 0)
+                gpu_temp = hw.get("gpu_temp", "--")
+                cpu_load = hw.get("cpu_load", 0)
+                ram_gb = hw.get("ram_used_gb", 0)
+                ping_ms = pg.get("riot_br") or pg.get("valve_br") or pg.get("cloudflare") or 18
+
+                gpu_str = f"{gpu_temp}°C ({gpu_load}%)" if gpu_temp != "--" else f"{gpu_load}%"
+
+                if lbl and not lbl.IsDisposed:
+                    lbl.Text = f"🎮 {game_title}  |  ⚡ {fps_txt}  |  🔥 GPU: {gpu_str}  |  ⚡ CPU: {cpu_load}%  |  🧠 RAM: {ram_gb} GB  |  📶 {ping_ms}ms"
+
+                # Re-assert topmost on each tick
+                h = _hud_form.Handle.ToInt64()
+                user32.SetWindowPos(h, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0040)
+            except Exception:
+                pass
+
+        timer.Tick += on_timer_tick
+        _hud_timer = timer
+        timer.Start()
+
         _hud_enabled = True
         print("[GamerHUD] Overlay flutuante ativo e visível na tela!", flush=True)
         _hud_ready_event.set()
@@ -402,7 +458,7 @@ def _update_hud_text(fps: str, gpu: str, cpu: str, ram: str, ping: str):
 
 def toggle_floating_hud(enable: Optional[bool] = None) -> bool:
     """Toggle or set the floating HUD overlay."""
-    global _hud_enabled, _hud_form, _hud_thread, _hud_ready_event
+    global _hud_enabled, _hud_form, _hud_thread, _hud_ready_event, _hud_timer
     with _hud_lock:
         target_state = not _hud_enabled if enable is None else bool(enable)
         if target_state:
@@ -414,7 +470,6 @@ def toggle_floating_hud(enable: Optional[bool] = None) -> bool:
                     t.SetApartmentState(ApartmentState.STA)
                     t.IsBackground = True
                     t.Start()
-                    _hud_thread = t
                     _hud_ready_event.wait(2.5)
                 except Exception as e:
                     print(f"[GamerHUD] Falha ao iniciar thread STA: {e}", flush=True)
@@ -424,7 +479,13 @@ def toggle_floating_hud(enable: Optional[bool] = None) -> bool:
                     if _hud_form and not _hud_form.IsDisposed:
                         _hud_form.Show()
                         _hud_form.BringToFront()
-                        ctypes.windll.user32.SetWindowPos(_hud_form.Handle.ToInt64(), -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
+                        h = _hud_form.Handle.ToInt64()
+                        user32 = ctypes.windll.user32
+                        cur_ex = user32.GetWindowLongW(h, -20)
+                        user32.SetWindowLongW(h, -20, cur_ex | 0x00000008 | 0x00000080 | 0x08000000)
+                        user32.SetWindowPos(h, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0040)
+                        if _hud_timer:
+                            _hud_timer.Start()
                 if _hud_form.InvokeRequired:
                     _hud_form.Invoke(MethodInvoker(_sh))
                 else:
@@ -435,6 +496,8 @@ def toggle_floating_hud(enable: Optional[bool] = None) -> bool:
                 from System.Windows.Forms import MethodInvoker
                 def _hd():
                     if _hud_form and not _hud_form.IsDisposed:
+                        if _hud_timer:
+                            _hud_timer.Stop()
                         _hud_form.Hide()
                 if _hud_form.InvokeRequired:
                     _hud_form.Invoke(MethodInvoker(_hd))
@@ -443,7 +506,6 @@ def toggle_floating_hud(enable: Optional[bool] = None) -> bool:
             _hud_enabled = False
 
         return _hud_enabled
-
 
 # ================= GAMING ANTI-LAG TWEAKS =================
 

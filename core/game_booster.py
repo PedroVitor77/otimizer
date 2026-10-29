@@ -124,8 +124,48 @@ KNOWN_GAMES: Dict[str, str] = {
     "gta_vc.exe": "GTA Vice City",
     "gta3.exe": "GTA III",
     "forzamotorsport.exe": "Forza Motorsport",
+    "f1_25.exe": "EA Sports F1 25",
     "f1_24.exe": "EA Sports F1 24",
     "f1_23.exe": "EA Sports F1 23",
+    "f1_22.exe": "EA Sports F1 22",
+    "fc26.exe": "EA Sports FC 26",
+    "fc26_showcase.exe": "EA Sports FC 26 (Showcase)",
+    "fc26_trial.exe": "EA Sports FC 26 (Trial)",
+    # Sim Racing & Simulation
+    "ams2.exe": "Automobilista 2",
+    "ams2avx.exe": "Automobilista 2",
+    "ams2-career.exe": "Automobilista 2 (Zero to Apex)",
+    "acs.exe": "Assetto Corsa",
+    "assettocorsa.exe": "Assetto Corsa",
+    "acshowroom.exe": "Assetto Corsa",
+    "acs_x86.exe": "Assetto Corsa",
+    "acc.exe": "Assetto Corsa Competizione",
+    "ac2-win64-shipping.exe": "Assetto Corsa Competizione",
+    "lemansultimate.exe": "Le Mans Ultimate",
+    "rfactor2.exe": "rFactor 2",
+    # PlayStation PC Ports & Story
+    "tlou-ii.exe": "The Last of Us Part II",
+    "tlou-ii-l.exe": "The Last of Us Part II",
+    "tlou-i.exe": "The Last of Us Part I",
+    "gow.exe": "God of War",
+    "gowr.exe": "God of War Ragnarök",
+    "godofwarragnarok.exe": "God of War Ragnarök",
+    "spiderman.exe": "Marvel's Spider-Man",
+    "milesmorales.exe": "Marvel's Spider-Man: Miles Morales",
+    "ghostotsushima.exe": "Ghost of Tsushima",
+    "horizonzerodawn.exe": "Horizon Zero Dawn",
+    "horizonforbiddenwest.exe": "Horizon Forbidden West",
+    "daysgone.exe": "Days Gone",
+    "uncharted.exe": "Uncharted: Legacy of Thieves",
+    # RPG, Action & Fighting
+    "witcher3.exe": "The Witcher 3: Wild Hunt",
+    "redprelauncher.exe": "The Witcher 3 Launcher",
+    "onimushawots.exe": "Onimusha: Warlords",
+    "ghost in the sql data.exe": "Ghost in the SQL Data Demo",
+    "nba2k25.exe": "NBA 2K25",
+    "nba2k26.exe": "NBA 2K26",
+    "nba2k24.exe": "NBA 2K24",
+    "hydra.exe": "Hydra Game Launcher",
     "wutheringwaves-win64-shipping.exe": "Wuthering Waves",
 }
 
@@ -278,6 +318,124 @@ def _find_best_performance_plan() -> Optional[str]:
         return None
 
 
+
+def discover_installed_games() -> Dict[str, str]:
+    """Scan all Steam libraries and local drives to dynamically map game exes to titles."""
+    games: Dict[str, str] = {}
+    vdf_paths = [
+        r"C:\Program Files (x86)\Steam\steamapps\libraryfolders.vdf",
+        r"C:\Program Files\Steam\steamapps\libraryfolders.vdf",
+    ]
+    lib_roots = set()
+    for vp in vdf_paths:
+        if os.path.exists(vp):
+            try:
+                with open(vp, "r", encoding="utf-8", errors="ignore") as f:
+                    txt = f.read()
+                matches = re.findall(r'"path"\s+"([^"]+)"', txt)
+                for m in matches:
+                    clean = m.replace(r"\\", "\\").strip()
+                    if os.path.isdir(clean):
+                        lib_roots.add(clean)
+            except Exception:
+                pass
+
+    # Standard drive roots
+    for drive in ["C", "D", "E", "F", "G"]:
+        for cand in [
+            rf"{drive}:\SteamLibrary",
+            rf"{drive}:\Program Files (x86)\Steam",
+            rf"{drive}:\Program Files\Steam",
+            rf"{drive}:\Games",
+            rf"{drive}:\Jogos",
+            rf"{drive}:\Epic Games",
+            rf"{drive}:\Riot Games",
+            rf"{drive}:\TheWitcher3",
+            rf"{drive}:\ufc",
+            rf"{drive}:\Zero to Apex",
+            rf"{drive}:\hydra",
+        ]:
+            if os.path.isdir(cand):
+                lib_roots.add(cand)
+
+    ignore_exes = {
+        "crashreporter.exe", "crashreport.exe", "bssndrpt64.exe", "bugsplathd64.exe",
+        "steamstatisticsreader.exe", "eaanticheat.installer.exe", "launcher.exe",
+        "uninstall.exe", "uninstall hydra.exe", "vc_redist.x64.exe", "7za.exe",
+        "d3dconfig.exe", "d3d12stateobjectcompiler.exe", "socd_cleaner.exe",
+        "pkg_extractor.exe", "hitboxer.exe", "python.exe", "pythonw.exe",
+        "redist.exe", "cleanup.exe", "touchup.exe", "elevate.exe", "7z.exe",
+        "bb-gpu-capabilities.exe", "crs-handler.exe", "crs-uploader.exe", "crs-video.exe"
+    }
+
+    friendly_overrides = {
+        "acs.exe": "Assetto Corsa",
+        "assettocorsa.exe": "Assetto Corsa",
+        "ams2.exe": "Automobilista 2",
+        "ams2avx.exe": "Automobilista 2",
+        "ams2-career.exe": "Automobilista 2 (Zero to Apex)",
+        "f1_25.exe": "EA Sports F1 25",
+        "fc26.exe": "EA Sports FC 26",
+        "fc26_showcase.exe": "EA Sports FC 26 (Showcase)",
+        "fc26_trial.exe": "EA Sports FC 26 (Trial)",
+        "tlou-ii.exe": "The Last of Us Part II",
+        "tlou-ii-l.exe": "The Last of Us Part II",
+        "onimushawots.exe": "Onimusha: Warlords",
+        "ghost in the sql data.exe": "Ghost in the SQL Data Demo",
+        "witcher3.exe": "The Witcher 3: Wild Hunt",
+        "ufc3.exe": "EA Sports UFC 3",
+        "sacredfire-game.exe": "EA Sports UFC 3 (SacredFire)",
+        "sacredfire.exe": "EA Sports UFC 3",
+        "hydra.exe": "Hydra Game Launcher",
+    }
+
+    for root in lib_roots:
+        scan_dirs = []
+        common = os.path.join(root, "steamapps", "common")
+        if os.path.isdir(common):
+            scan_dirs.append(common)
+        scan_dirs.append(root)
+
+        for sdir in scan_dirs:
+            try:
+                for entry in os.listdir(sdir):
+                    sub = os.path.join(sdir, entry)
+                    if not os.path.isdir(sub):
+                        continue
+                    folder_low = entry.lower()
+                    if folder_low in ["steamworks shared", "steam controller configs", "bin", "libs", "backup-steam-userdata", "resources"]:
+                        continue
+
+                    found_exes = []
+                    try:
+                        for f in os.listdir(sub):
+                            if f.lower().endswith(".exe") and f.lower() not in ignore_exes:
+                                found_exes.append((f, entry))
+                    except Exception:
+                        pass
+
+                    for nested in ["bin", "bin\\x64_dx12", "bin\\x64", "bin64", "build", "UFC3Native", "UFC3Native\\bin"]:
+                        np = os.path.join(sub, nested)
+                        if os.path.isdir(np):
+                            try:
+                                for f in os.listdir(np):
+                                    if f.lower().endswith(".exe") and f.lower() not in ignore_exes:
+                                        found_exes.append((f, entry))
+                            except Exception:
+                                pass
+
+                    for exe_file, title in found_exes:
+                        low_exe = exe_file.lower()
+                        if low_exe in friendly_overrides:
+                            games[low_exe] = friendly_overrides[low_exe]
+                        else:
+                            clean_t = title.replace("_", " ").title()
+                            games[low_exe] = clean_t
+            except Exception:
+                pass
+
+    return games
+
 class GameBooster:
     """Singleton background watcher that optimizes performance whenever games run."""
 
@@ -291,8 +449,10 @@ class GameBooster:
         self.original_power_plan: Optional[str] = None
         self.throttled_pids: Dict[int, int] = {}  # pid -> original_priority
         self.last_session: Optional[Dict[str, Any]] = None
+        self._last_catalog_refresh: float = 0.0
 
         self._load_config()
+        self._refresh_games_catalog(force=True)
 
     def _load_config(self) -> None:
         if BOOSTER_CONFIG_FILE.exists():
@@ -349,12 +509,59 @@ class GameBooster:
                 "last_session": self.last_session,
             }
 
+    def _refresh_games_catalog(self, force: bool = False) -> None:
+        """Dynamically discover installed games across Steam and user folders."""
+        now = time.time()
+        if not force and (now - self._last_catalog_refresh) < 60.0:
+            return
+        try:
+            discovered = discover_installed_games()
+            if discovered:
+                KNOWN_GAMES.update(discovered)
+            self._last_catalog_refresh = now
+        except Exception:
+            pass
+
+    def get_running_process_candidates(self) -> List[Dict[str, Any]]:
+        """Return user applications running on the machine for manual game linking."""
+        candidates = []
+        self._refresh_games_catalog()
+        for proc in psutil.process_iter(["pid", "name", "exe", "memory_info"]):
+            try:
+                pname = (proc.info.get("name") or "").lower()
+                if not pname or pname in LAUNCHER_IGNORE:
+                    continue
+                if any(k in pname for k in ["crash", "helper", "updater", "report", "service", "install", "webhelper"]):
+                    continue
+                pexe = (proc.info.get("exe") or "").lower()
+                if any(s in pexe for s in ["\\windows\\", "\\system32\\", "\\syswow64\\", "\\microsoft\\"]):
+                    continue
+                mem_mb = int((proc.info["memory_info"].rss if proc.info.get("memory_info") else 0) / (1024 * 1024))
+                if mem_mb < 35:
+                    continue
+
+                title = KNOWN_GAMES.get(pname) or Path(proc.info["name"]).stem.replace("_", " ").title()
+                candidates.append({
+                    "pid": proc.info["pid"],
+                    "name": title,
+                    "exe_name": proc.info["name"],
+                    "exe_path": proc.info.get("exe") or "",
+                    "memory_mb": mem_mb,
+                    "is_known_game": pname in KNOWN_GAMES,
+                })
+            except Exception:
+                continue
+
+        candidates.sort(key=lambda x: (not x["is_known_game"], -x["memory_mb"]))
+        return candidates[:35]
+
     def detect_running_game(self) -> Optional[Dict[str, Any]]:
         """Scan active processes to see if any known game is executing.
         Uses a 2-pass strategy:
         Pass 1: Exact matches in KNOWN_GAMES (highest confidence, avoids false positives).
         Pass 2: Heuristic detection by executable stem and folder paths.
         """
+        self._refresh_games_catalog()
         candidates = []
         for proc in psutil.process_iter(["pid", "name", "exe"]):
             try:
@@ -367,6 +574,15 @@ class GameBooster:
 
                 pid = proc.info["pid"]
                 pexe = (proc.info.get("exe") or "").lower()
+                if not pexe:
+                    try:
+                        cmd = " ".join(proc.cmdline()).lower()
+                        for part in cmd.split():
+                            if part.endswith(".exe") and ("\\" in part or "/" in part):
+                                pexe = part.strip('"\'')
+                                break
+                    except Exception:
+                        pass
 
                 # Pass 1: Direct match in KNOWN_GAMES
                 if pname in KNOWN_GAMES:

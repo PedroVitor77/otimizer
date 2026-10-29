@@ -92,7 +92,7 @@ from core.updater import (
 psutil.cpu_percent(interval=None)
 psutil.cpu_percent(interval=None, percpu=True)
 
-app = FastAPI(title="PulsePC Otimizador Pro", version="1.4.2")
+app = FastAPI(title="PulsePC Otimizador Pro", version="1.5.1")
 
 LOCAL_HOSTNAMES = {"127.0.0.1", "localhost"}
 
@@ -380,27 +380,14 @@ def api_game_booster_boost_now(req: GameBoosterBoostRequest):
 
 @app.get("/api/game-booster/running-candidates")
 def api_game_booster_candidates():
-    candidates = []
-    for proc in psutil.process_iter(["pid", "name", "memory_info"]):
-        try:
-            pname = (proc.info.get("name") or "").lower()
-            if pname in ("idle", "system", "registry", "smss.exe", "csrss.exe", "wininit.exe"):
-                continue
-            is_game = pname in KNOWN_GAMES
-            mem = proc.info.get("memory_info")
-            ram_mb = round((mem.rss if mem else 0) / (1024 * 1024), 1)
-            if is_game or ram_mb >= 250:
-                candidates.append({
-                    "pid": proc.info["pid"],
-                    "name": KNOWN_GAMES.get(pname, proc.info["name"]),
-                    "exe_name": proc.info["name"],
-                    "ram_mb": ram_mb,
-                    "is_known_game": is_game,
-                })
-        except Exception:
-            continue
-    candidates.sort(key=lambda x: (not x["is_known_game"], -x["ram_mb"]))
-    return {"candidates": candidates[:20]}
+    candidates = booster.get_running_process_candidates()
+    # Ensure both ram_mb and memory_mb exist for frontend compatibility
+    for c in candidates:
+        if "ram_mb" not in c and "memory_mb" in c:
+            c["ram_mb"] = c["memory_mb"]
+        elif "memory_mb" not in c and "ram_mb" in c:
+            c["memory_mb"] = c["ram_mb"]
+    return {"candidates": candidates}
 
 
 @app.post("/api/benchmark/start")
@@ -583,6 +570,25 @@ def api_game_optimize(req: Dict[str, Any] = None):
     return optimize_game_session(pid)
 
 
+@app.get("/api/game-monitor/running-candidates")
+def api_game_running_candidates():
+    from core.game_booster import booster
+    return {"candidates": booster.get_running_process_candidates()}
+
+
+@app.post("/api/game-monitor/select-game")
+def api_game_select_process(req: Dict[str, Any]):
+    from core.game_booster import booster
+    from core.game_monitor import optimize_game_session
+    pid = int(req.get("pid", 0))
+    title = req.get("name")
+    if not pid:
+        return {"success": False, "error": "PID inválido"}
+    res = booster.boost_process(pid, title)
+    optimize_game_session(pid)
+    return res
+
+
 @app.get("/api/game-monitor/tweaks")
 def api_game_tweaks_get():
     from core.game_monitor import get_mouse_acceleration_status
@@ -599,6 +605,31 @@ def api_game_tweaks_mouse(req: Dict[str, Any]):
     enable = bool(req.get("enable", True))
     success = set_mouse_raw_input_1to1(enable)
     return {"success": success, "mouse_raw_input": enable}
+
+
+@app.get("/api/software-updater/scan")
+def api_software_updater_scan(force: bool = False):
+    from core.software_updater import scan_software_updates
+    return scan_software_updates(force=force)
+
+
+@app.post("/api/software-updater/upgrade")
+def api_software_updater_upgrade(req: Dict[str, Any] = None):
+    from core.software_updater import start_software_upgrade
+    package_ids = req.get("package_ids") if req else None
+    return start_software_upgrade(package_ids)
+
+
+@app.get("/api/software-updater/status")
+def api_software_updater_status():
+    from core.software_updater import get_upgrade_status
+    return get_upgrade_status()
+
+
+@app.post("/api/software-updater/cancel")
+def api_software_updater_cancel():
+    from core.software_updater import cancel_software_upgrade
+    return {"cancelled": cancel_software_upgrade()}
 
 
 def find_free_port(preferred: int = 8765) -> int:
