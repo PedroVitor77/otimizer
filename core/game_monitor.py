@@ -11,6 +11,13 @@ import winreg
 
 import psutil
 
+try:
+    import clr
+    clr.AddReference("System.Windows.Forms")
+    clr.AddReference("System.Drawing")
+except Exception:
+    pass
+
 from core.game_booster import KNOWN_GAMES, booster
 from core.health import get_realtime_metrics, is_admin
 from core.history import record_action
@@ -27,8 +34,11 @@ _ping_cache: Dict[str, Any] = {
 # WinForms Floating HUD instance
 _hud_form = None
 _hud_label = None
+_hud_context = None
 _hud_enabled = False
+_hud_thread = None
 _hud_lock = threading.Lock()
+_hud_ready_event = threading.Event()
 
 
 def measure_game_ping(force: bool = False) -> Dict[str, int]:
@@ -75,7 +85,7 @@ def _estimate_live_fps(game_name: str, gpu_load: float, cpu_load: float) -> Dict
         base = 240.0
     elif any(k in name_low for k in ["fortnite", "apex", "overwatch", "rocket"]):
         base = 165.0
-    elif any(k in name_low for k in ["gta", "forza", "fifa", "fc 25", "minecraft"]):
+    elif any(k in name_low for k in ["gta", "forza", "fifa", "fc 25", "fc 24", "ufc", "sacredfire", "pes", "efootball", "minecraft"]):
         base = 120.0
     elif any(k in name_low for k in ["cyberpunk", "wukong", "rdr2", "elden"]):
         base = 80.0
@@ -113,15 +123,15 @@ def get_gamer_telemetry() -> Dict[str, Any]:
     mem_info = rt.get("ram", {})
     gpu_info = rt.get("gpu", {})
 
-    gpu_load = float(gpu_info.get("load_percent", 0) or 0)
-    gpu_temp = gpu_info.get("temperature_c") or "--"
-    vram_used = int(gpu_info.get("vram_used_mb", 0) or 0)
-    vram_total = int(gpu_info.get("vram_total_mb", 0) or 0)
+    gpu_load = float(gpu_info.get("load") if gpu_info.get("load") is not None else (gpu_info.get("load_percent") or 0))
+    gpu_temp = gpu_info.get("temp") or gpu_info.get("temperature_c") or "--"
+    vram_used = int(round(float(gpu_info.get("mem_used_mb") or gpu_info.get("vram_used_mb") or 0)))
+    vram_total = int(round(float(gpu_info.get("mem_total_mb") or gpu_info.get("vram_total_mb") or 0)))
     vram_pct = int(round((vram_used / vram_total * 100))) if vram_total > 0 else 0
 
-    cpu_load = float(cpu_info.get("percent", 0) or 0)
-    cpu_freq = int(cpu_info.get("frequency_mhz", 0) or 0)
-    cpu_temp = cpu_info.get("temperature_c") or "--"
+    cpu_load = float(cpu_info.get("percent") or 0)
+    cpu_freq = int(round(float(cpu_info.get("freq_mhz") or cpu_info.get("frequency_mhz") or 0)))
+    cpu_temp = cpu_info.get("temp") or cpu_info.get("temperature_c") or "--"
 
     ram_used_gb = float(mem_info.get("used_gb", 0) or 0)
     ram_total_gb = float(mem_info.get("total_gb", 0) or 0)
@@ -265,15 +275,17 @@ def optimize_game_session(pid: Optional[int] = None) -> Dict[str, Any]:
 
 # ================= FLOATING HUD (OVERLAY) =================
 
-def _create_hud_window():
-    """Build and show the borderless TopMost WinForms HUD on the Windows desktop."""
-    global _hud_form, _hud_label, _hud_enabled
+def _hud_ui_worker():
+    """Dedicated STA WinForms thread with persistent message pump for the floating HUD."""
+    global _hud_form, _hud_label, _hud_context, _hud_enabled
 
     try:
         import clr
         clr.AddReference("System.Windows.Forms")
         clr.AddReference("System.Drawing")
         from System.Windows.Forms import (
+            Application,
+            ApplicationContext,
             Cursors,
             Form,
             FormBorderStyle,
@@ -283,63 +295,102 @@ def _create_hud_window():
         )
         from System.Drawing import Color, Font, FontFamily, FontStyle, Point, Size
 
+        _hud_context = ApplicationContext()
+
+        # Win32 helpers
+        user32 = ctypes.windll.user32
+        user32.SetWindowPos.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_uint,
+        ]
+        user32.SetWindowPos.restype = ctypes.c_bool
+
+        user32.SendMessageW.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_uint,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+        ]
+        user32.SendMessageW.restype = ctypes.c_void_p
+
         f = Form()
         f.TopMost = True
         f.FormBorderStyle = getattr(FormBorderStyle, "None")
         f.StartPosition = FormStartPosition.Manual
-        f.Location = Point(60, 40)
-        f.BackColor = Color.FromArgb(12, 16, 13)
-        f.Opacity = 0.90
-        f.Size = Size(470, 34)
+
+        try:
+            screen_w = user32.GetSystemMetrics(0)
+        except Exception:
+            screen_w = 1920
+        hud_w = 540
+        hud_h = 36
+        x = max(10, (screen_w - hud_w) // 2)
+        y = 20
+
+        f.Location = Point(x, y)
+        f.BackColor = Color.FromArgb(14, 18, 15)
+        f.Opacity = 0.94
+        f.Size = Size(hud_w, hud_h)
         f.ShowInTaskbar = False
 
         # Draggable HUD
         def on_mouse_down(sender, e):
             if e.Button == MouseButtons.Left:
-                ctypes.windll.user32.ReleaseCapture()
-                ctypes.windll.user32.SendMessageW(f.Handle.ToInt32(), 0xA1, 0x2, 0)
+                user32.ReleaseCapture()
+                user32.SendMessageW(f.Handle.ToInt64(), 0xA1, 2, 0)
 
         f.MouseDown += on_mouse_down
 
         lbl = Label()
-        lbl.Text = "🎮 FPS: Standby | 🔥 GPU: -- | ⚡ CPU: -- | 🧠 RAM: -- | 📶 --"
+        lbl.Text = "🎮 FPS: Standby  |  🔥 GPU: --  |  ⚡ CPU: --  |  🧠 RAM: --  |  📶 --"
         lbl.ForeColor = Color.FromArgb(240, 248, 242)
         lbl.Font = Font(FontFamily.GenericSansSerif, 8.8, FontStyle.Bold)
-        lbl.Location = Point(10, 8)
+        lbl.Location = Point(12, 9)
         lbl.AutoSize = True
         lbl.MouseDown += on_mouse_down
         f.Controls.Add(lbl)
 
         btn_close = Label()
-        btn_close.Text = "×"
-        btn_close.ForeColor = Color.FromArgb(160, 170, 162)
-        btn_close.Font = Font(FontFamily.GenericSansSerif, 11, FontStyle.Bold)
-        btn_close.Location = Point(446, 5)
-        btn_close.Size = Size(18, 22)
+        btn_close.Text = "✕"
+        btn_close.ForeColor = Color.FromArgb(170, 180, 174)
+        btn_close.Font = Font(FontFamily.GenericSansSerif, 10, FontStyle.Bold)
+        btn_close.Location = Point(hud_w - 24, 8)
+        btn_close.Size = Size(18, 20)
         btn_close.Cursor = Cursors.Hand
         btn_close.Click += lambda s, e: toggle_floating_hud(False)
         f.Controls.Add(btn_close)
 
-        f.Show()
         _hud_form = f
         _hud_label = lbl
+        f.Show()
+        # Ensure HWND_TOPMOST (-1)
+        user32.SetWindowPos(f.Handle.ToInt64(), -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
         _hud_enabled = True
-        print("[GamerHUD] Overlay flutuante aberto com sucesso!", flush=True)
+        print("[GamerHUD] Overlay flutuante ativo e visível na tela!", flush=True)
+        _hud_ready_event.set()
+
+        Application.Run(_hud_context)
 
     except Exception as e:
         print(f"[GamerHUD] Falha ao criar HUD: {e}", flush=True)
+        _hud_ready_event.set()
 
 
 def _update_hud_text(fps: str, gpu: str, cpu: str, ram: str, ping: str):
     """Safely update label text from background thread via Invoke."""
-    global _hud_form, _hud_label
+    global _hud_form, _hud_label, _hud_enabled
     if not _hud_form or not _hud_label or not _hud_enabled:
         return
     try:
         from System.Windows.Forms import MethodInvoker
         text = f"🎮 {fps}  |  🔥 {gpu}  |  ⚡ {cpu}  |  🧠 {ram}  |  📶 {ping}"
         def _set():
-            if _hud_label:
+            if _hud_label and not _hud_label.IsDisposed:
                 _hud_label.Text = text
         if _hud_form.InvokeRequired:
             _hud_form.Invoke(MethodInvoker(_set))
@@ -351,16 +402,29 @@ def _update_hud_text(fps: str, gpu: str, cpu: str, ram: str, ping: str):
 
 def toggle_floating_hud(enable: Optional[bool] = None) -> bool:
     """Toggle or set the floating HUD overlay."""
-    global _hud_enabled, _hud_form
+    global _hud_enabled, _hud_form, _hud_thread, _hud_ready_event
     with _hud_lock:
         target_state = not _hud_enabled if enable is None else bool(enable)
         if target_state:
             if not _hud_form or _hud_form.IsDisposed:
-                _create_hud_window()
+                _hud_ready_event.clear()
+                try:
+                    from System.Threading import ApartmentState, Thread, ThreadStart
+                    t = Thread(ThreadStart(_hud_ui_worker))
+                    t.SetApartmentState(ApartmentState.STA)
+                    t.IsBackground = True
+                    t.Start()
+                    _hud_thread = t
+                    _hud_ready_event.wait(2.5)
+                except Exception as e:
+                    print(f"[GamerHUD] Falha ao iniciar thread STA: {e}", flush=True)
             else:
                 from System.Windows.Forms import MethodInvoker
                 def _sh():
-                    _hud_form.Show()
+                    if _hud_form and not _hud_form.IsDisposed:
+                        _hud_form.Show()
+                        _hud_form.BringToFront()
+                        ctypes.windll.user32.SetWindowPos(_hud_form.Handle.ToInt64(), -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
                 if _hud_form.InvokeRequired:
                     _hud_form.Invoke(MethodInvoker(_sh))
                 else:
@@ -370,7 +434,8 @@ def toggle_floating_hud(enable: Optional[bool] = None) -> bool:
             if _hud_form and not _hud_form.IsDisposed:
                 from System.Windows.Forms import MethodInvoker
                 def _hd():
-                    _hud_form.Hide()
+                    if _hud_form and not _hud_form.IsDisposed:
+                        _hud_form.Hide()
                 if _hud_form.InvokeRequired:
                     _hud_form.Invoke(MethodInvoker(_hd))
                 else:

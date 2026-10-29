@@ -92,6 +92,41 @@ KNOWN_GAMES: Dict[str, str] = {
     "rustclient.exe": "Rust",
     "dayz_x64.exe": "DayZ",
     "tarkov.exe": "Escape from Tarkov",
+    # EA Sports UFC & Native Ports / Emulators
+    "sacredfire-game.exe": "EA Sports UFC 3 (SacredFire)",
+    "sacredfire.exe": "EA Sports UFC 3",
+    "ufc.exe": "EA Sports UFC",
+    "ufc2.exe": "EA Sports UFC 2",
+    "ufc3.exe": "EA Sports UFC 3",
+    "ufc4.exe": "EA Sports UFC 4",
+    "ufc5.exe": "EA Sports UFC 5",
+    "rpcs3.exe": "RPCS3 (PS3 Emulator)",
+    "yuzu.exe": "Yuzu Emulator",
+    "ryujinx.exe": "Ryujinx Emulator",
+    "cemu.exe": "Cemu Emulator",
+    "pcsx2.exe": "PCSX2 (PS2 Emulator)",
+    "pcsx2-qtx64.exe": "PCSX2 Emulator",
+    "shadps4.exe": "shadPS4 (PS4 Emulator)",
+    "xenia.exe": "Xenia (Xbox 360 Emulator)",
+    "xenia_canary.exe": "Xenia Canary",
+    "ppssppwindows64.exe": "PPSSPP Emulator",
+    "retroarch.exe": "RetroArch",
+    "hd-player.exe": "BlueStacks / Emulador Android",
+    "dnplayer.exe": "LDPlayer / Emulador Android",
+    "nox.exe": "NoxPlayer / Emulador Android",
+    "gameloop.exe": "GameLoop / Tencent Emulator",
+    # Additional popular PC titles
+    "b1.exe": "Black Myth: Wukong",
+    "fifa.exe": "EA Sports FIFA",
+    "pes2021.exe": "eFootball PES 2021",
+    "efootball.exe": "eFootball",
+    "gta_sa.exe": "GTA San Andreas",
+    "gta_vc.exe": "GTA Vice City",
+    "gta3.exe": "GTA III",
+    "forzamotorsport.exe": "Forza Motorsport",
+    "f1_24.exe": "EA Sports F1 24",
+    "f1_23.exe": "EA Sports F1 23",
+    "wutheringwaves-win64-shipping.exe": "Wuthering Waves",
 }
 
 # Processes to NEVER treat as games even if they reside in steamapps or game directories
@@ -119,6 +154,14 @@ LAUNCHER_IGNORE: Set[str] = {
     "battleye.exe",
     "beservice.exe",
     "crashreporter.exe",
+    "riotclientcrashhandler.exe",
+    "crashpad_handler.exe",
+    "epicwebhelper.exe",
+    "overwolf.exe",
+    "overwolflauncher.exe",
+    "overwolfbrowser.exe",
+    "overwolfhelper.exe",
+    "overwolfhelper64.exe",
     "unitycrashhandler64.exe",
     "unitycrashhandler32.exe",
     "pulsepc.exe",
@@ -307,17 +350,25 @@ class GameBooster:
             }
 
     def detect_running_game(self) -> Optional[Dict[str, Any]]:
-        """Scan active processes to see if any known game is executing."""
+        """Scan active processes to see if any known game is executing.
+        Uses a 2-pass strategy:
+        Pass 1: Exact matches in KNOWN_GAMES (highest confidence, avoids false positives).
+        Pass 2: Heuristic detection by executable stem and folder paths.
+        """
+        candidates = []
         for proc in psutil.process_iter(["pid", "name", "exe"]):
             try:
                 pname = (proc.info.get("name") or "").lower()
-                if pname in LAUNCHER_IGNORE:
+                if not pname or pname in LAUNCHER_IGNORE:
+                    continue
+                # Skip common background utilities and handlers
+                if any(k in pname for k in ["crash", "helper", "updater", "report", "service", "install", "webhelper"]):
                     continue
 
-                pexe = (proc.info.get("exe") or "").lower()
                 pid = proc.info["pid"]
+                pexe = (proc.info.get("exe") or "").lower()
 
-                # 1. Direct match in KNOWN_GAMES
+                # Pass 1: Direct match in KNOWN_GAMES
                 if pname in KNOWN_GAMES:
                     return {
                         "pid": pid,
@@ -326,33 +377,74 @@ class GameBooster:
                         "exe_path": proc.info.get("exe") or "",
                     }
 
-                # 2. Path heuristic: inside steamapps/common or Epic/Riot/Xbox directories
+                candidates.append((pid, pname, proc.info["name"], pexe))
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+            except Exception:
+                continue
+
+        # Pass 2: Heuristics
+        for pid, pname, real_name, pexe in candidates:
+            try:
+                stem = Path(pname).stem.lower()
+                # 2.1 Name heuristic (-game, _game, etc.)
+                if any(k in stem for k in ["-game", "_game", "game-", "game_"]) or stem == "game":
+                    clean = stem.replace("-game", "").replace("_game", "").replace("game-", "").replace("game_", "").replace("-", " ").replace("_", " ").strip().title()
+                    display_name = f"{clean} (Jogo)" if clean else "Jogo em Execução"
+                    return {
+                        "pid": pid,
+                        "name": display_name,
+                        "exe_name": real_name,
+                        "exe_path": pexe,
+                    }
+
+                # 2.2 Unreal Engine Shipping binaries
+                if "-shipping" in stem or "_shipping" in stem:
+                    clean = stem.split("-shipping")[0].split("_shipping")[0].replace("-win64", "").replace("_win64", "").replace("-", " ").replace("_", " ").strip().title()
+                    return {
+                        "pid": pid,
+                        "name": clean or "Jogo (Unreal Engine)",
+                        "exe_name": real_name,
+                        "exe_path": pexe,
+                    }
+
+                # 2.3 Directory heuristic
                 if pexe:
                     is_game_dir = any(
                         sub in pexe
                         for sub in [
                             "\\steamapps\\common\\",
                             "\\epic games\\",
-                            "\\riot games\\valorant\\",
-                            "\\riot games\\league of legends\\",
+                            "\\riot games\\",
                             "\\xboxgames\\",
                             "\\ea games\\",
-                            "\\ubisoft game launcher\\games\\",
+                            "\\origin games\\",
+                            "\\ubisoft",
+                            "\\gog galaxy\\games\\",
+                            "\\games\\",
+                            "\\jogos\\",
+                            "\\game\\",
+                            "\\ufc\\",
+                            "\\emulators\\",
+                            "\\emuladores\\",
+                            "\\rpcs3\\",
+                            "\\yuzu\\",
+                            "\\ryujinx\\",
+                            "\\cemu\\",
+                            "\\pcsx2\\",
                         ]
                     )
                     if is_game_dir:
-                        # Normalize a clean title from the executable name or folder
-                        title = Path(pexe).stem.replace("_", " ").title()
+                        title = Path(pexe).stem.replace("_", " ").replace("-", " ").title()
                         return {
                             "pid": pid,
                             "name": title,
-                            "exe_name": proc.info["name"],
-                            "exe_path": proc.info.get("exe") or "",
+                            "exe_name": real_name,
+                            "exe_path": pexe,
                         }
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                continue
             except Exception:
                 continue
+
         return None
 
     def boost_process(self, pid: int, custom_title: Optional[str] = None) -> Dict[str, Any]:
