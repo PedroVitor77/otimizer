@@ -304,66 +304,217 @@
       </section>
 
 
-      <!-- ================= TAB: JOGOS (FPS ESTIMADO) ================= -->
+      <!-- ================= TAB: JOGOS & MONITOR GAMER ================= -->
       <section id="tab-games" class="tab-pane">
-        <div class="card games-setup">
-          <div class="games-hw">
-            <div class="hw-field">
-              <span class="icon-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="9" cy="12" r="3"/><circle cx="16.5" cy="12" r="1.5"/></svg></span>
-              <div class="hw-body">
-                <label for="games-gpu">Placa de vídeo</label>
-                <select id="games-gpu" class="select-control" onchange="estimateGames()"></select>
-                <small id="games-gpu-detected"></small>
+        <!-- Sub navigation between Gamer Monitor and FPS Catalog -->
+        <div class="sub-nav">
+          <button class="sub-nav-btn active" id="btn-sub-gamer-monitor" onclick="switchGamesSubTab('sub-gamer-monitor', this)">🎮 Monitor Gamer & FPS (Ao Vivo)</button>
+          <button class="sub-nav-btn" id="btn-sub-fps-estimator" onclick="switchGamesSubTab('sub-fps-estimator', this)">📊 Calculadora & Estimativa de FPS</button>
+        </div>
+
+        <!-- ================= SUB-TAB 1: LIVE GAMER MONITOR & TELEMETRY ================= -->
+        <div id="sub-gamer-monitor">
+          <!-- Active Game Hero Card -->
+          <div class="card" style="margin-bottom:18px; background:linear-gradient(135deg, rgba(20,28,24,0.95) 0%, rgba(10,14,12,0.98) 100%); border:1px solid rgba(16,185,129,0.3); padding:20px 24px;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:14px;">
+              <div style="display:flex; align-items:center; gap:16px;">
+                <div style="width:48px; height:48px; border-radius:12px; background:linear-gradient(135deg, rgba(16,185,129,0.2), rgba(6,182,212,0.2)); border:1px solid rgba(16,185,129,0.4); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                  <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="var(--accent-emerald)" stroke-width="2.2" stroke-linecap="round"><path d="M6 11h4M8 9v4M15 12h.01M18 10h.01"/><path d="M17.3 5H6.7a4 4 0 00-3.95 3.4L2 14.6A2.5 2.5 0 006.4 16.5L8 14h8l1.6 2.5a2.5 2.5 0 004.4-1.9l-.75-6.2A4 4 0 0017.3 5z"/></svg>
+                </div>
+                <div>
+                  <div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;">
+                    <span class="badge badge-green" id="game-status-badge"><span class="live-dot"></span>Pronto para Jogar</span>
+                    <span id="game-pid-badge" style="font-size:11px; color:var(--text-secondary); display:none;">PID: --</span>
+                  </div>
+                  <h2 style="font-size:20px; font-weight:800; color:var(--text-primary); margin:0;" id="game-active-title">Nenhum jogo em execução</h2>
+                  <div style="font-size:12.5px; color:var(--text-secondary); margin-top:3px;" id="game-active-desc">
+                    Inicie qualquer jogo (Steam, Epic, Riot, EA, Battle.net). O PulsePC detectará e otimizará automaticamente.
+                  </div>
+                </div>
               </div>
-            </div>
-            <div class="hw-field">
-              <span class="icon-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg></span>
-              <div class="hw-body">
-                <label for="games-cpu">Processador</label>
-                <select id="games-cpu" class="select-control" onchange="estimateGames()"></select>
-                <small id="games-cpu-detected"></small>
-              </div>
-            </div>
-            <div class="hw-field">
-              <span class="icon-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="10" rx="1.5"/><path d="M6 17v3M10 17v3M14 17v3M18 17v3M6 11h2M11 11h2M16 11h2"/></svg></span>
-              <div class="hw-body">
-                <label for="games-ram">Memória RAM</label>
-                <select id="games-ram" class="select-control" onchange="estimateGames()">
-                  <option value="4">4 GB</option>
-                  <option value="8">8 GB</option>
-                  <option value="12">12 GB</option>
-                  <option value="16">16 GB</option>
-                  <option value="24">24 GB</option>
-                  <option value="32">32 GB</option>
-                  <option value="64">64 GB</option>
-                </select>
-                <small id="games-ram-detected"></small>
+
+              <!-- Action buttons -->
+              <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                <button class="btn btn-boost" id="btn-game-turbo-boost" onclick="optimizeActiveGameNow()">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                  <span>Turbo Gamer</span>
+                </button>
+                <button class="btn btn-secondary" id="btn-toggle-hud" onclick="toggleFloatingGamerHUD()">
+                  <span>🪟 Overlay HUD na Tela</span>
+                </button>
+                <button class="btn btn-secondary" onclick="purgeStandbyListQuick()">
+                  <span>🧹 Purga de RAM</span>
+                </button>
               </div>
             </div>
           </div>
 
-          <div class="games-opts">
-            <div class="seg" id="games-res" role="group" aria-label="Resolução">
-              <button class="seg-btn active" data-v="1080p">1080p</button>
-              <button class="seg-btn" data-v="1440p">1440p</button>
-              <button class="seg-btn" data-v="4k">4K</button>
+          <!-- Live Metrics 4-Cards Grid -->
+          <div class="grid-4" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:14px; margin-bottom:20px;">
+            <!-- FPS & Frametime Card -->
+            <div class="card" style="padding:16px;">
+              <div class="card-header" style="margin-bottom:8px;">
+                <span class="card-title" style="font-size:13.5px;">🎯 Taxa de Quadros (FPS)</span>
+                <span class="badge badge-cyan" id="gamer-stability-badge">Ao Vivo</span>
+              </div>
+              <div style="display:flex; align-items:baseline; gap:6px;">
+                <div class="metric-big" style="color:var(--accent-emerald);" id="gamer-fps-display">--</div>
+                <span style="font-size:14px; font-weight:700; color:var(--text-secondary);">FPS</span>
+              </div>
+              <div class="metric-detail" style="margin-top:4px;" id="gamer-frametime-detail">Tempo de Quadro: -- ms</div>
+              <div style="font-size:11.5px; color:var(--text-secondary); margin-top:8px; display:flex; justify-content:space-between;">
+                <span>1% Low: <strong id="gamer-1pct-low" style="color:var(--text-primary);">-- FPS</strong></span>
+                <span id="gamer-stability-tag" style="color:var(--accent-emerald);">Estável</span>
+              </div>
             </div>
-            <div class="seg" id="games-preset" role="group" aria-label="Qualidade gráfica">
-              <button class="seg-btn" data-v="low">Baixo</button>
-              <button class="seg-btn" data-v="medium">Médio</button>
-              <button class="seg-btn active" data-v="high">Alto</button>
-              <button class="seg-btn" data-v="ultra">Ultra</button>
+
+            <!-- GPU & VRAM Card -->
+            <div class="card" style="padding:16px;">
+              <div class="card-header" style="margin-bottom:8px;">
+                <span class="card-title" style="font-size:13.5px;">🔥 GPU & VRAM</span>
+                <span class="badge badge-green" id="gamer-gpu-temp-badge">-- °C</span>
+              </div>
+              <div style="display:flex; align-items:baseline; gap:6px;">
+                <div class="metric-big" id="gamer-gpu-load-display">0%</div>
+                <span style="font-size:13px; color:var(--text-secondary);" id="gamer-gpu-shortname">GPU</span>
+              </div>
+              <div class="progress-bar" style="margin-top:6px;"><div class="progress-fill" id="gamer-gpu-bar" style="width:0%;"></div></div>
+              <div style="font-size:11.5px; color:var(--text-secondary); margin-top:8px; display:flex; justify-content:space-between;">
+                <span>VRAM: <strong id="gamer-vram-used" style="color:var(--text-primary);">0</strong> / <span id="gamer-vram-total">0</span> MB</span>
+                <span id="gamer-vram-pct">0%</span>
+              </div>
             </div>
-            <input type="text" id="games-search" class="input-control" placeholder="Buscar jogo" oninput="renderGames()" />
+
+            <!-- CPU & Clocks Card -->
+            <div class="card" style="padding:16px;">
+              <div class="card-header" style="margin-bottom:8px;">
+                <span class="card-title" style="font-size:13.5px;">⚡ CPU & Turbo Clock</span>
+                <span class="badge badge-cyan" id="gamer-cpu-temp-badge">-- °C</span>
+              </div>
+              <div style="display:flex; align-items:baseline; gap:6px;">
+                <div class="metric-big" id="gamer-cpu-load-display">0%</div>
+                <span style="font-size:13px; color:var(--text-secondary);" id="gamer-cpu-freq-display">-- MHz</span>
+              </div>
+              <div class="progress-bar" style="margin-top:6px;"><div class="progress-fill" id="gamer-cpu-bar" style="width:0%;"></div></div>
+              <div style="font-size:11.5px; color:var(--text-secondary); margin-top:8px; display:flex; justify-content:space-between;">
+                <span>RAM PC: <strong id="gamer-ram-used" style="color:var(--text-primary);">0</strong> / <span id="gamer-ram-total">0</span> GB</span>
+                <span id="gamer-ram-pct">0%</span>
+              </div>
+            </div>
+
+            <!-- Ping & Latência Card -->
+            <div class="card" style="padding:16px;">
+              <div class="card-header" style="margin-bottom:8px;">
+                <span class="card-title" style="font-size:13.5px;">📶 Ping nos Jogos (BR)</span>
+                <span class="badge badge-green" id="gamer-ping-status-badge">Excelente</span>
+              </div>
+              <div style="display:flex; align-items:baseline; gap:6px;">
+                <div class="metric-big" style="color:var(--accent-cyan);" id="gamer-ping-main">--</div>
+                <span style="font-size:14px; font-weight:700; color:var(--text-secondary);">ms</span>
+              </div>
+              <div class="kv-list" style="margin-top:6px; font-size:11.5px;">
+                <div><span>🎯 Riot Games (SP)</span><strong id="ping-riot-val">-- ms</strong></div>
+                <div><span>💣 Valve / CS2 (SP)</span><strong id="ping-valve-val">-- ms</strong></div>
+                <div><span>🌐 Cloudflare DNS</span><strong id="ping-cf-val">-- ms</strong></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Gaming Tweaks & Anti-Lag Control Card -->
+          <div class="card" style="margin-bottom:20px;">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Ajustes Anti-Lag & Otimizações de Entrada (Input Lag)</div>
+                <div class="card-subtitle">Reduza o tempo de resposta e elimine micro-travamentos (stutters) durante suas partidas</div>
+              </div>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:14px; padding:16px 20px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; background:rgba(255,255,255,0.02); border:1px solid var(--border-color); border-radius:10px;">
+                <div>
+                  <div style="font-weight:600; font-size:13px; color:var(--text-primary);">Precisão de Mouse 1:1 (Sem Aceleração)</div>
+                  <div style="font-size:11.5px; color:var(--text-secondary);">Desativa aceleração artificial do Windows para mira bruta consistente em FPS.</div>
+                </div>
+                <label class="switch" style="margin-left:12px;">
+                  <input type="checkbox" id="tweak-mouse-raw" onchange="toggleMouseRawInput(this.checked)">
+                  <span class="slider"></span>
+                </label>
+              </div>
+
+              <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; background:rgba(255,255,255,0.02); border:1px solid var(--border-color); border-radius:10px;">
+                <div>
+                  <div style="font-weight:600; font-size:13px; color:var(--text-primary);">Auto Game Booster (Prioridade Alta)</div>
+                  <div style="font-size:11.5px; color:var(--text-secondary);">Eleva a prioridade do jogo e reduz processos secundários em segundo plano.</div>
+                </div>
+                <label class="switch" style="margin-left:12px;">
+                  <input type="checkbox" id="tweak-auto-booster" onchange="toggleGameBooster(this.checked)" checked>
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div id="games-warning" class="admin-note" hidden></div>
-        <div id="games-grid" class="games-grid"></div>
-        <p class="games-disclaimer">
-          Estimativa calculada no próprio app a partir de benchmarks médios de cada placa e processador, sem enviar nada para a internet.
-          O FPS real pode variar cerca de 15% para mais ou para menos conforme driver, versão do jogo, mapa e programas abertos.
-        </p>
+        <!-- ================= SUB-TAB 2: FPS ESTIMATOR & CATALOG ================= -->
+        <div id="sub-fps-estimator" style="display:none;">
+          <div class="card games-setup">
+            <div class="games-hw">
+              <div class="hw-field">
+                <span class="icon-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="9" cy="12" r="3"/><circle cx="16.5" cy="12" r="1.5"/></svg></span>
+                <div class="hw-body">
+                  <label for="games-gpu">Placa de vídeo</label>
+                  <select id="games-gpu" class="select-control" onchange="estimateGames()"></select>
+                  <small id="games-gpu-detected"></small>
+                </div>
+              </div>
+              <div class="hw-field">
+                <span class="icon-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg></span>
+                <div class="hw-body">
+                  <label for="games-cpu">Processador</label>
+                  <select id="games-cpu" class="select-control" onchange="estimateGames()"></select>
+                  <small id="games-cpu-detected"></small>
+                </div>
+              </div>
+              <div class="hw-field">
+                <span class="icon-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="10" rx="1.5"/><path d="M6 17v3M10 17v3M14 17v3M18 17v3M6 11h2M11 11h2M16 11h2"/></svg></span>
+                <div class="hw-body">
+                  <label for="games-ram">Memória RAM</label>
+                  <select id="games-ram" class="select-control" onchange="estimateGames()">
+                    <option value="4">4 GB</option>
+                    <option value="8">8 GB</option>
+                    <option value="12">12 GB</option>
+                    <option value="16">16 GB</option>
+                    <option value="24">24 GB</option>
+                    <option value="32">32 GB</option>
+                    <option value="64">64 GB</option>
+                  </select>
+                  <small id="games-ram-detected"></small>
+                </div>
+              </div>
+            </div>
+
+            <div class="games-opts">
+              <div class="seg" id="games-res" role="group" aria-label="Resolução">
+                <button class="seg-btn active" data-v="1080p">1080p</button>
+                <button class="seg-btn" data-v="1440p">1440p</button>
+                <button class="seg-btn" data-v="4k">4K</button>
+              </div>
+              <div class="seg" id="games-preset" role="group" aria-label="Qualidade gráfica">
+                <button class="seg-btn" data-v="low">Baixo</button>
+                <button class="seg-btn" data-v="medium">Médio</button>
+                <button class="seg-btn active" data-v="high">Alto</button>
+                <button class="seg-btn" data-v="ultra">Ultra</button>
+              </div>
+              <input type="text" id="games-search" class="input-control" placeholder="Buscar jogo" oninput="renderGames()" />
+            </div>
+          </div>
+
+          <div id="games-warning" class="admin-note" hidden></div>
+          <div id="games-grid" class="games-grid"></div>
+          <p class="games-disclaimer">
+            Estimativa calculada no próprio app a partir de benchmarks médios de cada placa e processador, sem enviar nada para a internet.
+            O FPS real pode variar cerca de 15% para mais ou para menos conforme driver, versão do jogo, mapa e programas abertos.
+          </p>
+        </div>
       </section>
 
       <!-- ================= TAB 2: LIMPEZA DE ARQUIVOS INÚTEIS ================= -->

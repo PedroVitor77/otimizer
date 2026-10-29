@@ -36,6 +36,7 @@ hiddenimports = [
     'pydantic',
     'core.battery',
     'core.tray',
+    'core.game_monitor',
     'email.mime.text',
     'email.mime.multipart',
 ]

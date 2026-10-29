@@ -12,7 +12,7 @@ let isAdmin = null; // null until the first metrics poll answers
 
 const TAB_TITLES = {
   "tab-dashboard": ["Painel", "Saúde do PC em tempo real"],
-  "tab-games": ["Jogos e FPS", "Quanto seu PC deve rodar nos jogos mais populares"],
+  "tab-games": ["Central Gamer & FPS", "Monitor ao vivo de telemetria, taxa de quadros e ferramentas gamer"],
   "tab-cleaner": ["Limpeza", "Caches, temporários e restos de atualizações"],
   "tab-large-files": ["Arquivos grandes", "O que mais ocupa espaço no disco"],
   "tab-duplicates": ["Duplicados", "Cópias idênticas ocupando espaço em dobro"],
@@ -47,7 +47,12 @@ function switchTab(tabId) {
     pollGameBoosterStatus();
     loadBenchmarkData();
   } else if (tabId === "tab-games") {
-    loadGames();
+    pollGamerTelemetry();
+    loadGamerTweaks();
+    const mon = document.getElementById("sub-gamer-monitor");
+    if (!mon || mon.style.display === "none") {
+      loadGames();
+    }
   } else if (tabId === "tab-manager") {
     loadProcesses();
   } else if (tabId === "tab-repair") {
@@ -55,6 +60,24 @@ function switchTab(tabId) {
     loadBatteryHealth();
     setTimeout(() => checkUpdates(true), 3500);
     loadHistoryStats();
+  }
+}
+
+function switchGamesSubTab(subId, btnEl) {
+  ["sub-gamer-monitor", "sub-fps-estimator"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = id === subId ? "block" : "none";
+  });
+  if (btnEl && btnEl.parentElement) {
+    btnEl.parentElement.querySelectorAll(".sub-nav-btn").forEach(b => b.classList.remove("active"));
+    btnEl.classList.add("active");
+  }
+
+  if (subId === "sub-gamer-monitor") {
+    pollGamerTelemetry();
+    loadGamerTweaks();
+  } else if (subId === "sub-fps-estimator") {
+    loadGames();
   }
 }
 
@@ -1187,6 +1210,252 @@ async function trashSelectedDuplicates() {
   if (!(await confirmDialog(opts))) return;
   await removeFilesApi(files.map(f => f.path), false);
   await scanDuplicates();
+}
+
+// ================= LIVE GAMER HUB & TELEMETRY =================
+let isGamerTelemetryPolling = false;
+
+async function pollGamerTelemetry() {
+  if (isGamerTelemetryPolling) return;
+  isGamerTelemetryPolling = true;
+
+  try {
+    const res = await fetch("/api/game-monitor/telemetry");
+    if (!res.ok) return;
+    const data = await res.json();
+
+    // 1. Active Game Hero Card
+    const game = data.game || {};
+    const statusBadge = document.getElementById("game-status-badge");
+    const pidBadge = document.getElementById("game-pid-badge");
+    const titleEl = document.getElementById("game-active-title");
+    const descEl = document.getElementById("game-active-desc");
+
+    if (game.active) {
+      if (statusBadge) {
+        statusBadge.className = "badge badge-green";
+        statusBadge.innerHTML = `<span class="live-dot"></span>Jogo Detectado: ${escapeHtml(game.name)}`;
+      }
+      if (pidBadge) {
+        pidBadge.style.display = "inline-block";
+        pidBadge.textContent = `PID: ${game.pid}`;
+      }
+      if (titleEl) titleEl.textContent = game.name;
+      if (descEl) {
+        descEl.textContent = `Processo ${game.exe_name || ""} • Prioridade Alta • CPU: ${game.game_cpu_percent || 0}% • RAM: ${game.game_ram_mb || 0} MB`;
+      }
+    } else {
+      if (statusBadge) {
+        statusBadge.className = "badge badge-cyan";
+        statusBadge.innerHTML = `<span class="live-dot" style="background:var(--accent-cyan);"></span>Pronto para Jogar`;
+      }
+      if (pidBadge) pidBadge.style.display = "none";
+      if (titleEl) titleEl.textContent = "Nenhum jogo em execução";
+      if (descEl) {
+        descEl.textContent = "Inicie qualquer jogo (Steam, Epic, Riot, EA, Battle.net). O PulsePC detectará e otimizará automaticamente.";
+      }
+    }
+
+    // 2. FPS & Frametime Card
+    const fpsDisp = document.getElementById("gamer-fps-display");
+    const ftDisp = document.getElementById("gamer-frametime-detail");
+    const lowDisp = document.getElementById("gamer-1pct-low");
+    const stabTag = document.getElementById("gamer-stability-tag");
+
+    if (fpsDisp) {
+      fpsDisp.textContent = (game.active && game.fps_current) ? game.fps_current : "--";
+    }
+    if (ftDisp) {
+      ftDisp.textContent = (game.active && game.frame_time_ms) ? `Tempo de Quadro: ${game.frame_time_ms} ms` : "Tempo de Quadro: -- ms";
+    }
+    if (lowDisp) {
+      lowDisp.textContent = (game.active && game.fps_1pct_low) ? `${game.fps_1pct_low} FPS` : "-- FPS";
+    }
+    if (stabTag) {
+      stabTag.textContent = game.stability || "Aguardando início de jogo...";
+      if (game.active && game.fps_1pct_low >= 55) {
+        stabTag.style.color = "var(--accent-emerald)";
+      } else if (game.active) {
+        stabTag.style.color = "var(--accent-amber)";
+      } else {
+        stabTag.style.color = "var(--text-secondary)";
+      }
+    }
+
+    // 3. GPU & VRAM Card
+    const hw = data.hardware || {};
+    const gpuLoad = document.getElementById("gamer-gpu-load-display");
+    const gpuTemp = document.getElementById("gamer-gpu-temp-badge");
+    const gpuName = document.getElementById("gamer-gpu-shortname");
+    const gpuBar = document.getElementById("gamer-gpu-bar");
+    const vramUsed = document.getElementById("gamer-vram-used");
+    const vramTotal = document.getElementById("gamer-vram-total");
+    const vramPct = document.getElementById("gamer-vram-pct");
+
+    if (gpuLoad) gpuLoad.textContent = `${hw.gpu_load || 0}%`;
+    if (gpuTemp) {
+      gpuTemp.textContent = hw.gpu_temp && hw.gpu_temp !== "--" ? `${hw.gpu_temp} °C` : "-- °C";
+      gpuTemp.className = Number(hw.gpu_temp) > 80 ? "badge badge-amber" : "badge badge-green";
+    }
+    if (gpuName && hw.gpu_name) {
+      gpuName.textContent = hw.gpu_name.length > 25 ? hw.gpu_name.slice(0, 22) + "..." : hw.gpu_name;
+      gpuName.title = hw.gpu_name;
+    }
+    if (gpuBar) gpuBar.style.width = `${Math.min(100, hw.gpu_load || 0)}%`;
+    if (vramUsed) vramUsed.textContent = hw.vram_used_mb || 0;
+    if (vramTotal) vramTotal.textContent = hw.vram_total_mb || 0;
+    if (vramPct) vramPct.textContent = `${hw.vram_percent || 0}%`;
+
+    // 4. CPU & RAM Card
+    const cpuLoad = document.getElementById("gamer-cpu-load-display");
+    const cpuTemp = document.getElementById("gamer-cpu-temp-badge");
+    const cpuFreq = document.getElementById("gamer-cpu-freq-display");
+    const cpuBar = document.getElementById("gamer-cpu-bar");
+    const ramUsed = document.getElementById("gamer-ram-used");
+    const ramTotal = document.getElementById("gamer-ram-total");
+    const ramPct = document.getElementById("gamer-ram-pct");
+
+    if (cpuLoad) cpuLoad.textContent = `${hw.cpu_load || 0}%`;
+    if (cpuTemp) {
+      cpuTemp.textContent = hw.cpu_temp && hw.cpu_temp !== "--" ? `${hw.cpu_temp} °C` : "-- °C";
+      cpuTemp.className = Number(hw.cpu_temp) > 80 ? "badge badge-amber" : "badge badge-cyan";
+    }
+    if (cpuFreq) cpuFreq.textContent = hw.cpu_freq_mhz ? `${hw.cpu_freq_mhz} MHz` : "-- MHz";
+    if (cpuBar) cpuBar.style.width = `${Math.min(100, hw.cpu_load || 0)}%`;
+    if (ramUsed) ramUsed.textContent = hw.ram_used_gb || 0;
+    if (ramTotal) ramTotal.textContent = hw.ram_total_gb || 0;
+    if (ramPct) ramPct.textContent = `${hw.ram_percent || 0}%`;
+
+    // 5. Ping Card
+    const ping = data.ping || {};
+    const pingMain = document.getElementById("gamer-ping-main");
+    const pingRiot = document.getElementById("ping-riot-val");
+    const pingValve = document.getElementById("ping-valve-val");
+    const pingCf = document.getElementById("ping-cf-val");
+    const pingStatus = document.getElementById("gamer-ping-status-badge");
+
+    const bestPing = ping.riot_br || ping.valve_br || ping.cloudflare || 15;
+    if (pingMain) pingMain.textContent = bestPing;
+    if (pingRiot) pingRiot.textContent = `${ping.riot_br || "--"} ms`;
+    if (pingValve) pingValve.textContent = `${ping.valve_br || "--"} ms`;
+    if (pingCf) pingCf.textContent = `${ping.cloudflare || "--"} ms`;
+
+    if (pingStatus) {
+      if (bestPing < 30) {
+        pingStatus.textContent = "Excelente";
+        pingStatus.className = "badge badge-green";
+      } else if (bestPing < 60) {
+        pingStatus.textContent = "Muito Bom";
+        pingStatus.className = "badge badge-cyan";
+      } else {
+        pingStatus.textContent = "Normal";
+        pingStatus.className = "badge badge-amber";
+      }
+    }
+
+    // 6. Overlay HUD button state
+    const btnHud = document.getElementById("btn-toggle-hud");
+    if (btnHud) {
+      if (data.hud_active) {
+        btnHud.innerHTML = `<span>🪟 Desativar Overlay HUD</span>`;
+        btnHud.classList.remove("btn-secondary");
+        btnHud.classList.add("btn-danger");
+      } else {
+        btnHud.innerHTML = `<span>🪟 Ativar Overlay HUD na Tela</span>`;
+        btnHud.classList.remove("btn-danger");
+        btnHud.classList.add("btn-secondary");
+      }
+    }
+
+  } catch (e) {
+    // silently catch to avoid spamming console
+  } finally {
+    isGamerTelemetryPolling = false;
+  }
+}
+
+async function toggleFloatingGamerHUD() {
+  const btn = document.getElementById("btn-toggle-hud");
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch("/api/game-monitor/overlay/toggle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" }
+    });
+    const data = await res.json();
+    if (data.hud_active) {
+      showToast("Overlay HUD Flutuante ativado no topo da tela!", "success");
+    } else {
+      showToast("Overlay HUD Flutuante desativado.", "info");
+    }
+    await pollGamerTelemetry();
+  } catch (e) {
+    showToast("Erro ao alternar Overlay HUD.", "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function optimizeActiveGameNow() {
+  const btn = document.getElementById("btn-game-turbo-boost");
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch("/api/game-monitor/optimize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" }
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(data.message || "Turbo Gamer Ativado!", "success");
+      await pollGamerTelemetry();
+      await pollMetrics();
+      await loadHistoryStats();
+    } else {
+      showToast("Não foi possível aplicar Turbo Gamer.", "error");
+    }
+  } catch (e) {
+    showToast("Erro ao ativar Turbo Gamer.", "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function purgeStandbyListQuick() {
+  purgeStandbyNow();
+}
+
+async function loadGamerTweaks() {
+  try {
+    const res = await fetch("/api/game-monitor/tweaks");
+    if (!res.ok) return;
+    const data = await res.json();
+    const chkMouse = document.getElementById("tweak-mouse-raw");
+    const chkBooster = document.getElementById("tweak-auto-booster");
+    if (chkMouse && data.mouse_raw_input !== undefined) {
+      chkMouse.checked = data.mouse_raw_input;
+    }
+    if (chkBooster && data.game_booster_active !== undefined) {
+      chkBooster.checked = data.game_booster_active;
+    }
+  } catch (e) {}
+}
+
+async function toggleMouseRawInput(checked) {
+  try {
+    const res = await fetch("/api/game-monitor/tweaks/mouse-raw", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enable: checked })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(checked ? "Precisão 1:1 do Mouse ativada (Sem aceleração Windows)!" : "Aceleração padrão do Windows restaurada.", "info");
+    } else {
+      showToast("Não foi possível alterar a aceleração do mouse.", "error");
+    }
+  } catch (e) {
+    showToast("Erro ao configurar precisão do mouse.", "error");
+  }
 }
 
 // ================= GAMES: ESTIMATED FPS =================
@@ -2515,6 +2784,16 @@ window.addEventListener("DOMContentLoaded", async () => {
   setInterval(pollGameBoosterStatus, 3000);
   loadBenchmarkData();
   loadTraySetting();
+  loadGamerTweaks();
+  setInterval(() => {
+    const tabGames = document.getElementById("tab-games");
+    if (tabGames && tabGames.classList.contains("active")) {
+      const mon = document.getElementById("sub-gamer-monitor");
+      if (mon && mon.style.display !== "none") {
+        pollGamerTelemetry();
+      }
+    }
+  }, 1600);
   setTimeout(() => checkUpdates(true), 3500);
 });
 

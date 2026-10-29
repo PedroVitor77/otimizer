@@ -92,7 +92,7 @@ from core.updater import (
 psutil.cpu_percent(interval=None)
 psutil.cpu_percent(interval=None, percpu=True)
 
-app = FastAPI(title="PulsePC Otimizador Pro", version="1.4.0")
+app = FastAPI(title="PulsePC Otimizador Pro", version="1.4.1")
 
 LOCAL_HOSTNAMES = {"127.0.0.1", "localhost"}
 
@@ -560,6 +560,45 @@ def api_set_tray_setting(req: Dict[str, Any]):
     enabled = bool(req.get("minimize_to_tray", True))
     set_minimize_to_tray_setting(enabled)
     return {"success": True, "minimize_to_tray": enabled}
+
+
+@app.get("/api/game-monitor/telemetry")
+def api_game_telemetry():
+    from core.game_monitor import get_gamer_telemetry
+    return get_gamer_telemetry()
+
+
+@app.post("/api/game-monitor/overlay/toggle")
+def api_game_overlay_toggle(req: Dict[str, Any] = None):
+    from core.game_monitor import toggle_floating_hud
+    enable = req.get("enable") if req else None
+    state = toggle_floating_hud(enable)
+    return {"hud_active": state}
+
+
+@app.post("/api/game-monitor/optimize")
+def api_game_optimize(req: Dict[str, Any] = None):
+    from core.game_monitor import optimize_game_session
+    pid = req.get("pid") if req else None
+    return optimize_game_session(pid)
+
+
+@app.get("/api/game-monitor/tweaks")
+def api_game_tweaks_get():
+    from core.game_monitor import get_mouse_acceleration_status
+    from core.game_booster import booster
+    return {
+        "mouse_raw_input": not get_mouse_acceleration_status(),
+        "game_booster_active": booster.enabled,
+    }
+
+
+@app.post("/api/game-monitor/tweaks/mouse-raw")
+def api_game_tweaks_mouse(req: Dict[str, Any]):
+    from core.game_monitor import set_mouse_raw_input_1to1
+    enable = bool(req.get("enable", True))
+    success = set_mouse_raw_input_1to1(enable)
+    return {"success": success, "mouse_raw_input": enable}
 
 
 def find_free_port(preferred: int = 8765) -> int:
