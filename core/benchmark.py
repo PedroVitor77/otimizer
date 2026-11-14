@@ -10,15 +10,17 @@ performance improvements over time.
 """
 
 from concurrent.futures import ThreadPoolExecutor
+import ctypes
+import ctypes.wintypes as wintypes
 from datetime import datetime
+import hashlib
 import json
-import math
 import os
 from pathlib import Path
 import tempfile
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from core.history import get_data_dir, record_action
 
@@ -26,17 +28,89 @@ DATA_DIR = get_data_dir()
 BENCHMARK_FILE = DATA_DIR / "benchmark.json"
 
 _benchmark_lock = threading.RLock()
+_CPU_BLOCK = b"PulsePC-Bench-" * (256 * 1024 // 14)
 
 
-def _cpu_worker(duration: float) -> int:
-    """CPU load worker executing arithmetic and integer square roots."""
+def _cpu_worker(duration: float, block: bytes = _CPU_BLOCK) -> int:
+    """GIL-free CPU throughput worker using C-backed SHA-256 hashing across cores."""
     count = 0
-    t_start = time.time()
-    while time.time() - t_start < duration:
-        for x in range(1000):
-            math.isqrt(x * 12345 + 6789)
-        count += 1000
+    t_start = time.perf_counter()
+    while time.perf_counter() - t_start < duration:
+        hashlib.sha256(block).digest()
+        count += 1
     return count
+
+
+def _run_disk_bench_win32_unbuffered(disk_temp_path: str, total_mb: int) -> Optional[Tuple[float, float]]:
+    """Run sequential write/read bypassing the Windows OS page cache (FILE_FLAG_NO_BUFFERING)."""
+    if os.name != "nt":
+        return None
+    k32 = ctypes.windll.kernel32
+    k32.VirtualAlloc.restype = ctypes.c_void_p
+    k32.VirtualAlloc.argtypes = [ctypes.c_void_p, ctypes.c_size_t, wintypes.DWORD, wintypes.DWORD]
+    k32.VirtualFree.argtypes = [ctypes.c_void_p, ctypes.c_size_t, wintypes.DWORD]
+    k32.CreateFileW.restype = wintypes.HANDLE
+    k32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
+        wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+    ]
+
+    GENERIC_READ = 0x80000000
+    GENERIC_WRITE = 0x40000000
+    CREATE_ALWAYS = 2
+    OPEN_EXISTING = 3
+    FILE_FLAG_NO_BUFFERING = 0x20000000
+    FILE_FLAG_WRITE_THROUGH = 0x80000000
+    INVALID_HANDLE = wintypes.HANDLE(-1).value
+    MEM_COMMIT_RESERVE = 0x3000
+    MEM_RELEASE = 0x8000
+    PAGE_READWRITE = 0x04
+
+    chunk_sz = 1024 * 1024
+    buf = k32.VirtualAlloc(None, chunk_sz, MEM_COMMIT_RESERVE, PAGE_READWRITE)
+    if not buf:
+        return None
+    try:
+        ctypes.memset(buf, 0x58, chunk_sz)
+
+        # Unbuffered sequential write
+        hw = k32.CreateFileW(
+            disk_temp_path, GENERIC_WRITE, 0, None, CREATE_ALWAYS,
+            FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH, None,
+        )
+        if hw == INVALID_HANDLE:
+            return None
+        try:
+            written = wintypes.DWORD(0)
+            t_w0 = time.perf_counter()
+            for _ in range(total_mb):
+                if not k32.WriteFile(hw, ctypes.c_void_p(buf), chunk_sz, ctypes.byref(written), None):
+                    return None
+            write_elapsed = max(0.001, time.perf_counter() - t_w0)
+        finally:
+            k32.CloseHandle(hw)
+
+        # Unbuffered sequential read
+        hr = k32.CreateFileW(
+            disk_temp_path, GENERIC_READ, 0, None, OPEN_EXISTING,
+            FILE_FLAG_NO_BUFFERING, None,
+        )
+        if hr == INVALID_HANDLE:
+            return None
+        try:
+            read_n = wintypes.DWORD(0)
+            t_r0 = time.perf_counter()
+            while k32.ReadFile(hr, ctypes.c_void_p(buf), chunk_sz, ctypes.byref(read_n), None) and read_n.value > 0:
+                pass
+            read_elapsed = max(0.001, time.perf_counter() - t_r0)
+        finally:
+            k32.CloseHandle(hr)
+
+        return (total_mb / write_elapsed, total_mb / read_elapsed)
+    except Exception:
+        return None
+    finally:
+        k32.VirtualFree(buf, 0, MEM_RELEASE)
 
 
 class BenchmarkRunner:
@@ -106,29 +180,30 @@ class BenchmarkRunner:
 
             cpu_cores = os.cpu_count() or 4
             cpu_duration = 3.0
-            t_cpu_start = time.time()
+            t_cpu_start = time.perf_counter()
             with ThreadPoolExecutor(max_workers=cpu_cores) as executor:
                 counts = list(executor.map(_cpu_worker, [cpu_duration] * cpu_cores))
             total_cpu_ops = sum(counts)
-            cpu_elapsed = max(0.001, time.time() - t_cpu_start)
+            cpu_elapsed = max(0.001, time.perf_counter() - t_cpu_start)
             cpu_ops_per_sec = total_cpu_ops / cpu_elapsed
-            cpu_score = round(cpu_ops_per_sec / 3000)
+            cpu_score = round(cpu_ops_per_sec / 20)
 
             # 2. RAM Stage (~2.5 seconds)
             with self.lock:
                 self.progress = 50
                 self.stage = "Testando Largura de Banda e Latência da Memória RAM..."
 
-            ram_block_size = 64 * 1024 * 1024  # 64 MB
+            ram_block_size = 64 * 1024 * 1024  # 64 MB buffer, 32 MB copied per slice pass
+            half_block = ram_block_size // 2
             ram_buffer = bytearray(ram_block_size)
             ram_passes = 0
-            t_ram_start = time.time()
-            while time.time() - t_ram_start < 2.5:
-                # Sequential write / stride swap
-                ram_buffer[: ram_block_size // 2] = ram_buffer[ram_block_size // 2 :]
+            t_ram_start = time.perf_counter()
+            while time.perf_counter() - t_ram_start < 2.5:
+                # Sequential write / stride swap (32 MB copied per pass)
+                ram_buffer[:half_block] = ram_buffer[half_block:]
                 ram_passes += 1
-            ram_elapsed = max(0.001, time.time() - t_ram_start)
-            ram_mbs = (ram_passes * (ram_block_size / (1024 * 1024))) / ram_elapsed
+            ram_elapsed = max(0.001, time.perf_counter() - t_ram_start)
+            ram_mbs = (ram_passes * (half_block / (1024 * 1024))) / ram_elapsed
             ram_score = round(ram_mbs * 0.45)
             del ram_buffer
 
@@ -139,31 +214,30 @@ class BenchmarkRunner:
 
             disk_temp_path = os.path.join(tempfile.gettempdir(), f"pulsepc_bench_{int(time.time())}.tmp")
             disk_mb_to_test = 64
-            chunk = b"X" * (1024 * 1024)  # 1MB chunk
-
             write_mbs = 0.0
             read_mbs = 0.0
             try:
-                # Sequential Write
-                t_write_start = time.time()
-                with open(disk_temp_path, "wb") as f:
-                    for _ in range(disk_mb_to_test):
-                        f.write(chunk)
-                    f.flush()
-                    try:
-                        os.fsync(f.fileno())
-                    except Exception:
-                        pass
-                write_elapsed = max(0.001, time.time() - t_write_start)
-                write_mbs = disk_mb_to_test / write_elapsed
+                unbuffered = _run_disk_bench_win32_unbuffered(disk_temp_path, disk_mb_to_test)
+                if unbuffered is not None:
+                    write_mbs, read_mbs = unbuffered
+                else:
+                    chunk = b"X" * (1024 * 1024)
+                    t_write_start = time.perf_counter()
+                    with open(disk_temp_path, "wb") as f:
+                        for _ in range(disk_mb_to_test):
+                            f.write(chunk)
+                        f.flush()
+                        try:
+                            os.fsync(f.fileno())
+                        except Exception:
+                            pass
+                    write_mbs = disk_mb_to_test / max(0.001, time.perf_counter() - t_write_start)
 
-                # Sequential Read
-                t_read_start = time.time()
-                with open(disk_temp_path, "rb") as f:
-                    while f.read(1024 * 1024):
-                        pass
-                read_elapsed = max(0.001, time.time() - t_read_start)
-                read_mbs = disk_mb_to_test / read_elapsed
+                    t_read_start = time.perf_counter()
+                    with open(disk_temp_path, "rb") as f:
+                        while f.read(1024 * 1024):
+                            pass
+                    read_mbs = disk_mb_to_test / max(0.001, time.perf_counter() - t_read_start)
             finally:
                 if os.path.exists(disk_temp_path):
                     try:

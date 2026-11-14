@@ -3,10 +3,14 @@ from ctypes import wintypes
 import glob
 import os
 import shutil
+import threading
 import time
 from pathlib import Path
 import send2trash
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+_node_modules_lock = threading.Lock()
+_allowed_node_modules: Optional[Set[str]] = None
 
 from core.health import format_bytes, is_admin, is_link_or_junction
 from core.history import record_action
@@ -566,6 +570,9 @@ def scan_inactive_node_modules(
                 dirs.clear()
 
     found_projects.sort(key=lambda x: x["size_bytes"], reverse=True)
+    with _node_modules_lock:
+        global _allowed_node_modules
+        _allowed_node_modules = {os.path.normcase(os.path.abspath(p["path"])) for p in found_projects}
     return {
         "projects": found_projects,
         "total_projects": len(found_projects),
@@ -574,18 +581,37 @@ def scan_inactive_node_modules(
     }
 
 
+def _is_path_link_or_junction(path: Path) -> bool:
+    try:
+        if path.is_symlink():
+            return True
+        is_junction = getattr(os.path, "isjunction", None)
+        if is_junction is not None and is_junction(str(path)):
+            return True
+    except OSError:
+        return True
+    return False
+
+
 def clean_inactive_node_modules(paths: List[str]) -> Dict[str, Any]:
-    """Move selected inactive node_modules folders to the Windows Recycle Bin safely."""
+    """Move selected inactive node_modules folders from the last scan to the Recycle Bin safely."""
     cleaned_bytes = 0
     removed_count = 0
     errors: List[str] = []
 
+    with _node_modules_lock:
+        allowed = set(_allowed_node_modules) if _allowed_node_modules is not None else set()
+
     for p_str in paths:
+        norm = os.path.normcase(os.path.abspath(p_str))
         p = Path(p_str)
-        if not p.exists() or p.name.lower() != "node_modules":
+        if norm not in allowed:
+            errors.append(f"{p.parent.name}: caminho ignorado (execute o scan primeiro)")
+            continue
+        if not p.exists() or p.name.lower() != "node_modules" or _is_path_link_or_junction(p):
             continue
         try:
-            sz = sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+            sz = sum(f.stat().st_size for f in p.rglob("*") if f.is_file() and not f.is_symlink())
             send2trash.send2trash(str(p))
             cleaned_bytes += sz
             removed_count += 1

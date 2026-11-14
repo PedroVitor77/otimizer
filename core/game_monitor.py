@@ -41,6 +41,9 @@ _hud_thread = None
 _hud_lock = threading.Lock()
 _hud_timer = None
 _hud_ready_event = threading.Event()
+_hud_snapshot_lock = threading.Lock()
+_hud_snapshot_text = "🎮 PulsePC HUD  |  ⚡ Standby  |  🔥 GPU: --  |  ⚡ CPU: --  |  🧠 RAM: --  |  📶 --"
+_hud_bg_thread: Optional[threading.Thread] = None
 
 
 def measure_game_ping(force: bool = False) -> Dict[str, Optional[int]]:
@@ -160,16 +163,6 @@ def get_gamer_telemetry() -> Dict[str, Any]:
                 "fps_current": None,
                 "fps_status": "idle",
             }
-
-    # Update floating HUD if visible
-    if _hud_enabled and _hud_form:
-        fps_str = f"{game_data['fps_current']} FPS" if game_data.get("fps_current") else "FPS: --"
-        gpu_str = f"GPU: {gpu_temp}°C ({int(gpu_load)}%)" if gpu_temp != "--" else f"GPU: {int(gpu_load)}%"
-        cpu_str = f"CPU: {int(cpu_load)}%"
-        ram_str = f"RAM: {ram_used_gb} GB"
-        pings = [v for v in (ping_data.get("riot_br"), ping_data.get("valve_br"), ping_data.get("cloudflare")) if v]
-        ping_str = f"{min(pings)}ms" if pings else "--"
-        _update_hud_text(fps_str, gpu_str, cpu_str, ram_str, ping_str)
 
     return {
         "game": game_data,
@@ -321,11 +314,13 @@ def _hud_ui_worker():
         f.Paint += on_paint
 
         lbl = Label()
-        lbl.Text = "🎮 PulsePC HUD  |  ⚡ Standby  |  🔥 GPU: --  |  ⚡ CPU: --  |  🧠 RAM: --  |  📶 --"
+        lbl.Text = _hud_snapshot_text
         lbl.ForeColor = Color.FromArgb(240, 255, 245)
         lbl.Font = Font(FontFamily.GenericSansSerif, 9.2, FontStyle.Bold)
         lbl.Location = Point(14, 12)
-        lbl.AutoSize = True
+        lbl.AutoSize = False
+        lbl.Size = Size(hud_w - 50, 22)
+        lbl.AutoEllipsis = True
         lbl.MouseDown += on_mouse_down
         f.Controls.Add(lbl)
 
@@ -349,35 +344,17 @@ def _hud_ui_worker():
         user32.SetWindowLongW(handle, -20, cur_ex | 0x00000008 | 0x00000080 | 0x08000000)
         user32.SetWindowPos(handle, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0040)
 
-        # Internal 1-second autonomous timer so the overlay updates continuously
+        # Internal lightweight timer reads cached snapshot prepared by background thread
         timer = Timer()
-        timer.Interval = 1000
+        timer.Interval = 500
         def on_timer_tick(s, e):
             try:
                 if not _hud_enabled or not _hud_form or _hud_form.IsDisposed:
                     return
-                # Query telemetry directly
-                telem = get_gamer_telemetry()
-                gm = telem.get("game") or {}
-                hw = telem.get("hardware") or {}
-                pg = telem.get("ping") or {}
-
-                game_title = gm.get("name") or "PulsePC HUD"
-                if len(game_title) > 20:
-                    game_title = game_title[:18] + "..."
-                fps = gm.get("fps_current")
-                fps_txt = f"{fps} FPS" if fps else "FPS --"
-                gpu_load = hw.get("gpu_load", 0)
-                gpu_temp = hw.get("gpu_temp", "--")
-                cpu_load = hw.get("cpu_load", 0)
-                ram_gb = hw.get("ram_used_gb", 0)
-                pings = [v for v in (pg.get("riot_br"), pg.get("valve_br"), pg.get("cloudflare")) if v]
-                ping_ms = min(pings) if pings else "--"
-
-                gpu_str = f"{gpu_temp}°C ({gpu_load}%)" if gpu_temp != "--" else f"{gpu_load}%"
-
-                if lbl and not lbl.IsDisposed:
-                    lbl.Text = f"🎮 {game_title}  |  ⚡ {fps_txt}  |  🔥 GPU: {gpu_str}  |  ⚡ CPU: {cpu_load}%  |  🧠 RAM: {ram_gb} GB  |  📶 {ping_ms}ms"
+                with _hud_snapshot_lock:
+                    snap_txt = _hud_snapshot_text
+                if lbl and not lbl.IsDisposed and lbl.Text != snap_txt:
+                    lbl.Text = snap_txt
 
                 # Re-assert topmost on each tick
                 h = _hud_form.Handle.ToInt64()
@@ -390,6 +367,7 @@ def _hud_ui_worker():
         timer.Start()
 
         _hud_enabled = True
+        _start_hud_bg_worker()
         print("[GamerHUD] Overlay flutuante ativo e visível na tela!", flush=True)
         _hud_ready_event.set()
 
@@ -398,6 +376,52 @@ def _hud_ui_worker():
     except Exception as e:
         print(f"[GamerHUD] Falha ao criar HUD: {e}", flush=True)
         _hud_ready_event.set()
+
+
+def _format_hud_line(telem: Dict[str, Any]) -> str:
+    gm = telem.get("game") or {}
+    hw = telem.get("hardware") or {}
+    pg = telem.get("ping") or {}
+
+    game_title = gm.get("name") or "PulsePC HUD"
+    if len(game_title) > 18:
+        game_title = game_title[:16] + "..."
+    fps = gm.get("fps_current")
+    fps_txt = f"{fps} FPS" if fps else "FPS --"
+    gpu_load = hw.get("gpu_load", 0)
+    gpu_temp = hw.get("gpu_temp", "--")
+    cpu_load = hw.get("cpu_load", 0)
+    ram_gb = hw.get("ram_used_gb", 0)
+    pings = [v for v in (pg.get("riot_br"), pg.get("valve_br"), pg.get("cloudflare")) if v]
+    ping_ms = min(pings) if pings else "--"
+
+    gpu_str = f"{gpu_temp}°C ({gpu_load}%)" if gpu_temp not in ("--", None) else f"{gpu_load}%"
+    return f"🎮 {game_title}  |  ⚡ {fps_txt}  |  🔥 GPU: {gpu_str}  |  ⚡ CPU: {cpu_load}%  |  🧠 RAM: {ram_gb} GB  |  📶 {ping_ms}ms"
+
+
+def _hud_bg_loop() -> None:
+    """Collect HUD telemetry off the WinForms STA thread so the overlay stays responsive."""
+    global _hud_snapshot_text
+    while _hud_enabled:
+        try:
+            telem = get_gamer_telemetry()
+            txt = _format_hud_line(telem)
+            with _hud_snapshot_lock:
+                _hud_snapshot_text = txt
+        except Exception:
+            pass
+        for _ in range(10):
+            if not _hud_enabled:
+                return
+            time.sleep(0.1)
+
+
+def _start_hud_bg_worker() -> None:
+    global _hud_bg_thread
+    if _hud_bg_thread and _hud_bg_thread.is_alive():
+        return
+    _hud_bg_thread = threading.Thread(target=_hud_bg_loop, daemon=True, name="HudTelemetryWorker")
+    _hud_bg_thread.start()
 
 
 def _update_hud_text(fps: str, gpu: str, cpu: str, ram: str, ping: str):
@@ -454,6 +478,7 @@ def toggle_floating_hud(enable: Optional[bool] = None) -> bool:
                 else:
                     _sh()
                 _hud_enabled = True
+                _start_hud_bg_worker()
         else:
             if _hud_form and not _hud_form.IsDisposed:
                 from System.Windows.Forms import MethodInvoker

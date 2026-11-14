@@ -11,7 +11,10 @@ from urllib.parse import urlsplit
 import urllib.error
 import urllib.request
 
-CURRENT_VERSION = "1.6.0"
+from core.lifecycle import shutdown_runtime
+from core.version import APP_VERSION
+
+CURRENT_VERSION = APP_VERSION
 GITHUB_REPO = "PedroVitor77/otimizer"
 
 # The installer is only ever downloaded from GitHub. Release assets redirect to GitHub's CDN hosts.
@@ -288,6 +291,9 @@ def apply_update() -> Dict[str, Any]:
     try:
         # /CLOSEAPPLICATIONS tells Inno Setup to ask or close the current instance cleanly
         subprocess.Popen([file_path, "/CLOSEAPPLICATIONS"])
+
+        # Release runtime locks (Game Booster power plan, PresentMon, HUD) before exiting
+        shutdown_runtime()
 
         # Terminate current application cleanly after 1.2s to release executable locks
         threading.Timer(1.2, lambda: os._exit(0)).start()

@@ -28,6 +28,76 @@ _cached_updates: Dict[str, Any] = {
 
 # winget ids look like "Publisher.Product" and never start with a dash
 _PACKAGE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+\-]{0,127}")
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+
+def _clean_winget_line(raw_line: str) -> str:
+    """Strip ANSI escape sequences and keep the last carriage-return frame."""
+    line = _ANSI_RE.sub("", raw_line)
+    if "\r" in line:
+        line = line.rsplit("\r", 1)[-1]
+    return line
+
+
+def parse_winget_upgrade_output(stdout: str) -> List[Dict[str, str]]:
+    """Parse `winget upgrade` table output cleanly across locales and spinner output."""
+    lines = [_clean_winget_line(l) for l in (stdout or "").splitlines()]
+    items: List[Dict[str, str]] = []
+    header_idx = -1
+
+    for idx, line in enumerate(lines):
+        if line.strip().startswith("----"):
+            header_idx = idx - 1
+            break
+
+    if header_idx < 0:
+        return items
+
+    header = lines[header_idx]
+    # The five columns are always, in order: name, id, version, available, source.
+    starts = [m.start() for m in re.finditer(r"\S+(?: \S+)*", header)]
+    if len(starts) < 4:
+        return items
+
+    col_id = starts[1]
+    col_ver = starts[2]
+    col_avail = starts[3]
+    col_source = starts[4] if len(starts) > 4 else -1
+
+    for line in lines[header_idx + 2:]:
+        sline = line.strip()
+        if (
+            not sline
+            or sline.startswith("-")
+            or "upgrades available" in sline.lower()
+            or "atualizaç" in sline.lower() and "disponíve" in sline.lower()
+            or "package(s) have version" in sline.lower()
+            or "have pins preventing" in sline.lower()
+        ):
+            continue
+
+        name = line[:col_id].strip()
+        pkg_id = line[col_id:col_ver].strip()
+        ver = line[col_ver:col_avail].strip()
+        avail = (
+            line[col_avail:col_source].strip()
+            if col_source != -1
+            else line[col_avail:].strip()
+        )
+        source = line[col_source:].strip() if col_source != -1 else "winget"
+
+        # Skip truncated IDs that winget clipped with '…' so --exact does not fail mysteriously
+        if pkg_id.endswith("…"):
+            continue
+        if pkg_id and avail:
+            items.append({
+                "name": name,
+                "id": pkg_id,
+                "installed_version": ver,
+                "available_version": avail,
+                "source": source,
+            })
+    return items
 
 _active_process: Optional[subprocess.Popen] = None
 _upgrade_state: Dict[str, Any] = {
@@ -103,57 +173,7 @@ def scan_software_updates(force: bool = False) -> Dict[str, Any]:
             timeout=25,
         )
 
-        lines = res.stdout.splitlines()
-        items: List[Dict[str, str]] = []
-        header_idx = -1
-
-        for idx, line in enumerate(lines):
-            if line.startswith("---"):
-                header_idx = idx - 1
-                break
-
-        if header_idx >= 0:
-            header = lines[header_idx]
-            # The five columns are always, in order: name, id, version, available, source. Their start
-            # positions are taken from the header words, so the language of winget does not matter.
-            starts = [m.start() for m in re.finditer(r"\S+(?: \S+)*", header)]
-            if len(starts) < 4:
-                starts = []
-            col_name = starts[0] if starts else -1
-            col_id = starts[1] if len(starts) > 1 else -1
-            col_ver = starts[2] if len(starts) > 2 else -1
-            col_avail = starts[3] if len(starts) > 3 else -1
-            col_source = starts[4] if len(starts) > 4 else -1
-
-            for line in lines[header_idx + 2:]:
-                sline = line.strip()
-                if (
-                    not sline
-                    or sline.startswith("-")
-                    or "upgrades available" in sline
-                    or "package(s) have version" in sline
-                    or "have pins preventing" in sline
-                ):
-                    continue
-
-                name = line[:col_id].strip() if col_id != -1 else ""
-                pkg_id = line[col_id:col_ver].strip() if col_ver != -1 else ""
-                ver = line[col_ver:col_avail].strip() if col_avail != -1 else ""
-                avail = (
-                    line[col_avail:col_source].strip()
-                    if col_source != -1
-                    else line[col_avail:].strip()
-                )
-                source = line[col_source:].strip() if col_source != -1 else "winget"
-
-                if pkg_id and avail:
-                    items.append({
-                        "name": name,
-                        "id": pkg_id,
-                        "installed_version": ver,
-                        "available_version": avail,
-                        "source": source,
-                    })
+        items = parse_winget_upgrade_output(res.stdout)
 
         _cached_updates = {
             "available": True,
@@ -280,6 +300,7 @@ def _run_upgrade_worker(targets: List[Dict[str, str]]):
             "upgrade",
             "--id",
             target["id"],
+            "--exact",
             "--silent",
             "--accept-source-agreements",
             "--accept-package-agreements",

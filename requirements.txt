@@ -1,6 +1,7 @@
-psutil>=5.9.0
-fastapi>=0.110.0
-uvicorn>=0.29.0
-pywebview>=5.0.0
-send2trash>=1.8.2
-pydantic>=2.0.0
+psutil==7.2.2
+fastapi==0.162.0
+uvicorn==0.54.0
+pywebview==6.2.1
+pythonnet==3.2.1
+send2trash==2.1.0
+pydantic==2.13.4

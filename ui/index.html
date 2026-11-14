@@ -19,6 +19,7 @@
     </div>
 
     <ul class="nav-list">
+      <li class="nav-group-label">Monitoramento</li>
       <li class="nav-item active" data-tab="tab-dashboard">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
         <span>Painel</span>
@@ -27,6 +28,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 11h4M8 9v4M15 12h.01M18 10h.01"/><path d="M17.3 5H6.7a4 4 0 00-3.95 3.4L2 14.6A2.5 2.5 0 006.4 16.5L8 14h8l1.6 2.5a2.5 2.5 0 004.4-1.9l-.75-6.2A4 4 0 0017.3 5z"/></svg>
         <span>Jogos e FPS</span>
       </li>
+      <li class="nav-group-label">Manutenção</li>
       <li class="nav-item" data-tab="tab-cleaner">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
         <span>Limpeza</span>
@@ -39,6 +41,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
         <span>Duplicados</span>
       </li>
+      <li class="nav-group-label">Sistema</li>
       <li class="nav-item" data-tab="tab-optimizer">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
         <span>Otimizar e Turbo</span>
@@ -84,6 +87,11 @@
         <p id="topbar-subtitle">Saúde do PC em tempo real</p>
       </div>
       <div class="topbar-actions">
+        <button class="cmd-search-btn" id="cmd-search-trigger" onclick="openCommandPalette()" title="Atalho rápido (Ctrl+K)">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+          <span>Comando rápido</span>
+          <kbd>Ctrl+K</kbd>
+        </button>
         <div class="uptime-pill" id="battery-top-pill" style="display:none; cursor:pointer;" onclick="switchTab('tab-repair')" title="Ver saúde da bateria e energia">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="18" height="12" rx="2"/><path d="M22 10v4M6 12h4M8 10v4"/></svg>
           <span id="battery-top-label">Bateria</span>
@@ -127,10 +135,9 @@
 
       <!-- ================= TAB 1: DASHBOARD DE SAÚDE ================= -->
       <section id="tab-dashboard" class="tab-pane active">
-        <div class="dash-grid">
-
-          <!-- Visão geral -->
-          <div class="card hero-card">
+        <div class="dash-top-row">
+          <!-- Visão geral (Bento Hero + Sparkline KPIs) -->
+          <div class="card hero-card bento-hero">
             <div class="hero-main">
               <div class="hero-greet" id="hero-greet">Olá</div>
               <h2 class="hero-title">Visão geral do PC</h2>
@@ -144,6 +151,7 @@
                   </div>
                   <div class="tile-value"><span id="tile-cpu">--</span><small>%</small></div>
                   <div class="tile-status" id="tile-cpu-st">--</div>
+                  <canvas class="tile-spark" id="tile-cpu-spark"></canvas>
                 </div>
                 <div class="tile">
                   <div class="tile-head">
@@ -152,6 +160,7 @@
                   </div>
                   <div class="tile-value"><span id="tile-ram">--</span><small>%</small></div>
                   <div class="tile-status" id="tile-ram-st">--</div>
+                  <canvas class="tile-spark" id="tile-ram-spark"></canvas>
                 </div>
                 <div class="tile">
                   <div class="tile-head">
@@ -160,6 +169,7 @@
                   </div>
                   <div class="tile-value"><span id="tile-gpu">--</span><small>%</small></div>
                   <div class="tile-status" id="tile-gpu-st">--</div>
+                  <canvas class="tile-spark" id="tile-gpu-spark"></canvas>
                 </div>
                 <div class="tile" style="cursor:pointer;" onclick="switchTab('tab-repair')" title="Ver detalhes de energia e bateria">
                   <div class="tile-head">
@@ -168,6 +178,7 @@
                   </div>
                   <div class="tile-value"><span id="tile-bat">--</span><small id="tile-bat-unit">%</small></div>
                   <div class="tile-status" id="tile-bat-st">--</div>
+                  <canvas class="tile-spark" id="tile-bat-spark"></canvas>
                 </div>
               </div>
             </div>
@@ -184,14 +195,66 @@
             </div>
           </div>
 
-          <!-- Uso agora: anéis -->
+          <!-- Alertas & Ações Rápidas -->
+          <div class="card diag-card bento-alerts">
+            <div>
+              <div class="card-header">
+                <span class="card-title">Alertas & Diagnóstico</span>
+                <button class="link-btn" onclick="optimizeRamNow()">Liberar RAM</button>
+              </div>
+              <div class="alerts-list" id="health-alerts-list"></div>
+            </div>
+
+            <div class="quick-actions-footer">
+              <div class="quick-actions-lbl">Ações rápidas</div>
+              <div class="quick-actions-row">
+                <button class="quick-chip-btn" onclick="switchTab('tab-cleaner')">🧹 Cache</button>
+                <button class="quick-chip-btn" onclick="purgeStandbyListQuick()">⚡ Standby</button>
+                <button class="quick-chip-btn" onclick="switchTab('tab-games')">🎮 Gamer</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Telemetria ao Vivo (Curva CPU/RAM + Heatmap Multi-core) -->
+        <div class="card telemetry-strip-card">
+          <div class="telemetry-split">
+            <div class="telemetry-chart-panel">
+              <div class="card-header" style="margin-bottom:8px;">
+                <span class="card-title">Histórico CPU & RAM ao vivo</span>
+                <span class="pill"><span class="live-dot"></span>Últimos 2 min</span>
+              </div>
+              <div class="strip-legend">
+                <span><span class="key cpu"></span>CPU <b id="strip-cpu-val">0%</b></span>
+                <span><span class="key ram"></span>Memória <b id="strip-ram-val">0%</b></span>
+              </div>
+              <canvas id="stripCanvas"></canvas>
+            </div>
+
+            <div class="telemetry-cores-panel">
+              <div class="telemetry-cores-head">
+                <span class="telemetry-cores-title">Multi-core CPU</span>
+                <span class="pill" id="cpu-freq-badge">-- MHz</span>
+              </div>
+              <div class="cores-top">
+                <div class="metric-big" id="cpu-percent-val">0%</div>
+                <div class="metric-detail" id="cpu-cores-detail">-- Núcleos / -- Threads</div>
+              </div>
+              <div class="progress-bar" style="display:none;"><div class="progress-fill" id="cpu-bar" style="width:0%"></div></div>
+              <div id="cpu-cores-grid" class="core-bars"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Leituras Bento 4 colunas -->
+        <div class="grid-4" style="margin-bottom: 16px;">
           <div class="card rings-card">
             <div class="card-header">
               <span class="card-title">Uso agora</span>
               <span class="pill"><span class="live-dot"></span>Ao vivo</span>
             </div>
             <div class="rings-wrap">
-              <canvas id="ringsCanvas" width="190" height="190"></canvas>
+              <canvas id="ringsCanvas" width="168" height="168"></canvas>
               <span class="rings-center icon-dot">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
               </span>
@@ -203,45 +266,6 @@
             </div>
           </div>
 
-          <!-- Diagnóstico -->
-          <div class="card diag-card">
-            <div class="card-header">
-              <span class="card-title">Diagnóstico</span>
-              <button class="link-btn" onclick="optimizeRamNow()">Liberar RAM</button>
-            </div>
-            <div class="alerts-list" id="health-alerts-list"></div>
-          </div>
-
-          <!-- Atividade ao vivo -->
-          <div class="card chart-card">
-            <div class="card-header">
-              <span class="card-title">Atividade ao vivo</span>
-              <span class="pill">Últimos 2 min</span>
-            </div>
-            <div class="strip-legend">
-              <span><span class="key cpu"></span>CPU <b id="strip-cpu-val">0%</b></span>
-              <span><span class="key ram"></span>Memória <b id="strip-ram-val">0%</b></span>
-            </div>
-            <canvas id="stripCanvas"></canvas>
-          </div>
-
-          <!-- Carga por núcleo -->
-          <div class="card cores-card">
-            <div class="card-header">
-              <span class="card-title">Carga por núcleo</span>
-              <span class="pill" id="cpu-freq-badge">-- MHz</span>
-            </div>
-            <div class="cores-top">
-              <div class="metric-big" id="cpu-percent-val">0%</div>
-              <div class="metric-detail" id="cpu-cores-detail">-- Núcleos / -- Threads</div>
-            </div>
-            <div class="progress-bar" style="display:none;"><div class="progress-fill" id="cpu-bar" style="width:0%"></div></div>
-            <div id="cpu-cores-grid" class="core-bars"></div>
-          </div>
-        </div>
-
-        <!-- Leituras -->
-        <div class="grid-3">
           <div class="card">
             <div class="card-header">
               <span class="card-title"><span class="icon-dot sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="10" rx="1.5"/><path d="M6 17v3M10 17v3M14 17v3M18 17v3"/></svg></span>Memória RAM</span>
@@ -264,7 +288,7 @@
 
           <div class="card">
             <div class="card-header">
-              <span class="card-title"><span class="icon-dot sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 010 20M12 2a15 15 0 000 20"/></svg></span>Placa de Vídeo & Rede</span>
+              <span class="card-title"><span class="icon-dot sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 010 20M12 2a15 15 0 000 20"/></svg></span>GPU & Rede</span>
               <span class="badge badge-green" id="gpu-vendor-badge">GPU</span>
             </div>
             <div class="metric-big" id="gpu-dash-load">0%</div>
@@ -315,19 +339,19 @@
         <!-- ================= SUB-TAB 1: LIVE GAMER MONITOR & TELEMETRY ================= -->
         <div id="sub-gamer-monitor">
           <!-- Active Game Hero Card -->
-          <div class="card" style="margin-bottom:18px; background:linear-gradient(135deg, rgba(20,28,24,0.95) 0%, rgba(10,14,12,0.98) 100%); border:1px solid rgba(16,185,129,0.3); padding:20px 24px;">
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:14px;">
-              <div style="display:flex; align-items:center; gap:16px;">
-                <div style="width:48px; height:48px; border-radius:12px; background:linear-gradient(135deg, rgba(16,185,129,0.2), rgba(6,182,212,0.2)); border:1px solid rgba(16,185,129,0.4); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
-                  <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="var(--accent-emerald)" stroke-width="2.2" stroke-linecap="round"><path d="M6 11h4M8 9v4M15 12h.01M18 10h.01"/><path d="M17.3 5H6.7a4 4 0 00-3.95 3.4L2 14.6A2.5 2.5 0 006.4 16.5L8 14h8l1.6 2.5a2.5 2.5 0 004.4-1.9l-.75-6.2A4 4 0 0017.3 5z"/></svg>
+          <div class="card gamer-hero-card" style="margin-bottom:16px; padding:20px 24px;">
+            <div class="gamer-hero-top">
+              <div style="display:flex; align-items:center; gap:16px; min-width:0;">
+                <div style="width:50px; height:50px; border-radius:14px; background:linear-gradient(135deg, rgba(155,226,45,0.2), rgba(56,189,248,0.18)); border:1px solid rgba(155,226,45,0.38); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                  <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="var(--lime)" stroke-width="2.2" stroke-linecap="round"><path d="M6 11h4M8 9v4M15 12h.01M18 10h.01"/><path d="M17.3 5H6.7a4 4 0 00-3.95 3.4L2 14.6A2.5 2.5 0 006.4 16.5L8 14h8l1.6 2.5a2.5 2.5 0 004.4-1.9l-.75-6.2A4 4 0 0017.3 5z"/></svg>
                 </div>
-                <div>
+                <div style="min-width:0;">
                   <div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;">
                     <span class="badge badge-green" id="game-status-badge"><span class="live-dot"></span>Pronto para Jogar</span>
-                    <span id="game-pid-badge" style="font-size:11px; color:var(--text-secondary); display:none;">PID: --</span>
+                    <span id="game-pid-badge" style="font-size:11px; color:var(--ink-2); display:none;">PID: --</span>
                   </div>
-                  <h2 style="font-size:20px; font-weight:800; color:var(--text-primary); margin:0;" id="game-active-title">Nenhum jogo em execução</h2>
-                  <div style="font-size:12.5px; color:var(--text-secondary); margin-top:3px;" id="game-active-desc">
+                  <h2 style="font-size:20px; font-weight:800; color:var(--ink); margin:0;" id="game-active-title">Nenhum jogo em execução</h2>
+                  <div style="font-size:12.5px; color:var(--ink-2); margin-top:3px;" id="game-active-desc">
                     Inicie qualquer jogo (Steam, Epic, Riot, EA, Battle.net). O PulsePC detectará e otimizará automaticamente.
                   </div>
                 </div>
@@ -350,106 +374,137 @@
                 </button>
               </div>
             </div>
+
+            <!-- Live HUD Preview Strip -->
+            <div class="hud-preview-pill" id="hud-preview-pill">
+              <span class="hud-preview-label"><span class="hud-preview-dot"></span>Prévia HUD OSD</span>
+              <span class="hud-preview-metrics" id="hud-preview-metrics">FPS -- • Frame -- ms • GPU --% • CPU --% • Ping -- ms</span>
+            </div>
           </div>
 
-          <!-- Live Metrics 4-Cards Grid -->
-          <div class="grid-4" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:14px; margin-bottom:20px;">
+          <!-- Live Metrics 4-Cards Bento Grid -->
+          <div class="gamer-bento-4">
             <!-- FPS & Frametime Card -->
             <div class="card" style="padding:16px;">
-              <div class="card-header" style="margin-bottom:8px;">
-                <span class="card-title" style="font-size:13.5px;">🎯 FPS do jogo</span>
-                <span class="badge badge-cyan" id="gamer-stability-badge" title="Lido do jogo em execução com o PresentMon">Aguardando</span>
+              <div>
+                <div class="card-header" style="margin-bottom:8px;">
+                  <span class="card-title" style="font-size:13.5px;">🎯 FPS & Frametime</span>
+                  <span class="badge badge-cyan" id="gamer-stability-badge" title="Lido do jogo em execução com o PresentMon">Aguardando</span>
+                </div>
+                <div style="display:flex; align-items:baseline; gap:6px;">
+                  <div class="metric-big" style="color:var(--lime);" id="gamer-fps-display">--</div>
+                  <span style="font-size:14px; font-weight:700; color:var(--ink-2);">FPS</span>
+                </div>
+                <div class="metric-detail" style="margin-top:4px;" id="gamer-frametime-detail">Tempo de quadro: -- ms</div>
+                <div class="fps-wave-wrap">
+                  <canvas id="fpsFrametimeCanvas"></canvas>
+                </div>
               </div>
-              <div style="display:flex; align-items:baseline; gap:6px;">
-                <div class="metric-big" style="color:var(--accent-emerald);" id="gamer-fps-display">--</div>
-                <span style="font-size:14px; font-weight:700; color:var(--text-secondary);">FPS</span>
+              <div>
+                <div style="font-size:11.5px; color:var(--ink-2); margin-top:10px; display:flex; justify-content:space-between;">
+                  <span>1% Low: <strong id="gamer-1pct-low" style="color:var(--ink);">-- FPS</strong></span>
+                  <span id="gamer-stability-tag" style="color:var(--lime);"></span>
+                </div>
+                <button class="btn btn-sm btn-secondary" id="btn-fps-admin" style="display:none; margin-top:10px; width:100%;" onclick="elevateToAdmin()">Reabrir como administrador</button>
               </div>
-              <div class="metric-detail" style="margin-top:4px;" id="gamer-frametime-detail">Tempo de quadro: -- ms</div>
-              <div style="font-size:11.5px; color:var(--text-secondary); margin-top:8px; display:flex; justify-content:space-between;">
-                <span>1% Low: <strong id="gamer-1pct-low" style="color:var(--text-primary);">-- FPS</strong></span>
-                <span id="gamer-stability-tag" style="color:var(--accent-emerald);"></span>
-              </div>
-              <button class="btn btn-sm btn-secondary" id="btn-fps-admin" style="display:none; margin-top:10px; width:100%;" onclick="elevateToAdmin()">Reabrir como administrador</button>
             </div>
 
             <!-- GPU & VRAM Card -->
             <div class="card" style="padding:16px;">
-              <div class="card-header" style="margin-bottom:8px;">
-                <span class="card-title" style="font-size:13.5px;">🔥 GPU & VRAM</span>
-                <span class="badge badge-green" id="gamer-gpu-temp-badge">-- °C</span>
+              <div>
+                <div class="card-header" style="margin-bottom:10px;">
+                  <span class="card-title" style="font-size:13.5px;">🔥 GPU & VRAM</span>
+                  <span class="badge badge-green" id="gamer-gpu-temp-badge">-- °C</span>
+                </div>
+                <div class="gpu-ring-row">
+                  <div class="gpu-ring-box">
+                    <canvas id="gamerGpuRingCanvas" width="72" height="72"></canvas>
+                    <div class="gpu-ring-center" id="gamer-gpu-load-display">0%</div>
+                  </div>
+                  <div style="min-width:0; flex:1;">
+                    <div style="font-size:13px; font-weight:700; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" id="gamer-gpu-shortname">GPU</div>
+                    <div style="font-size:11.5px; color:var(--ink-2); margin-top:4px;">Carga instantânea</div>
+                    <div class="progress-bar" style="margin-top:6px;"><div class="progress-fill" id="gamer-gpu-bar" style="width:0%;"></div></div>
+                  </div>
+                </div>
               </div>
-              <div style="display:flex; align-items:baseline; gap:6px;">
-                <div class="metric-big" id="gamer-gpu-load-display">0%</div>
-                <span style="font-size:13px; color:var(--text-secondary);" id="gamer-gpu-shortname">GPU</span>
-              </div>
-              <div class="progress-bar" style="margin-top:6px;"><div class="progress-fill" id="gamer-gpu-bar" style="width:0%;"></div></div>
-              <div style="font-size:11.5px; color:var(--text-secondary); margin-top:8px; display:flex; justify-content:space-between;">
-                <span>VRAM: <strong id="gamer-vram-used" style="color:var(--text-primary);">0</strong> / <span id="gamer-vram-total">0</span> MB</span>
-                <span id="gamer-vram-pct">0%</span>
+              <div style="margin-top:12px;">
+                <div style="font-size:11.5px; color:var(--ink-2); display:flex; justify-content:space-between;">
+                  <span>VRAM: <strong id="gamer-vram-used" style="color:var(--ink);">0</strong> / <span id="gamer-vram-total">0</span> MB</span>
+                  <span id="gamer-vram-pct">0%</span>
+                </div>
+                <div class="progress-bar" style="margin-top:5px;"><div class="progress-fill" id="gamer-vram-bar" style="width:0%; background:linear-gradient(90deg, #0ea5e9, var(--cyan));"></div></div>
               </div>
             </div>
 
             <!-- CPU & Clocks Card -->
             <div class="card" style="padding:16px;">
-              <div class="card-header" style="margin-bottom:8px;">
-                <span class="card-title" style="font-size:13.5px;">⚡ CPU & Turbo Clock</span>
-                <span class="badge badge-cyan" id="gamer-cpu-temp-badge">-- °C</span>
+              <div>
+                <div class="card-header" style="margin-bottom:8px;">
+                  <span class="card-title" style="font-size:13.5px;">⚡ CPU & Turbo Clock</span>
+                  <span class="badge badge-cyan" id="gamer-cpu-temp-badge">-- °C</span>
+                </div>
+                <div style="display:flex; align-items:baseline; gap:8px;">
+                  <div class="metric-big" id="gamer-cpu-load-display">0%</div>
+                  <span style="font-size:13px; font-weight:700; color:var(--cyan);" id="gamer-cpu-freq-display">-- MHz</span>
+                </div>
+                <div class="progress-bar" style="margin-top:10px;"><div class="progress-fill" id="gamer-cpu-bar" style="width:0%;"></div></div>
               </div>
-              <div style="display:flex; align-items:baseline; gap:6px;">
-                <div class="metric-big" id="gamer-cpu-load-display">0%</div>
-                <span style="font-size:13px; color:var(--text-secondary);" id="gamer-cpu-freq-display">-- MHz</span>
-              </div>
-              <div class="progress-bar" style="margin-top:6px;"><div class="progress-fill" id="gamer-cpu-bar" style="width:0%;"></div></div>
-              <div style="font-size:11.5px; color:var(--text-secondary); margin-top:8px; display:flex; justify-content:space-between;">
-                <span>RAM PC: <strong id="gamer-ram-used" style="color:var(--text-primary);">0</strong> / <span id="gamer-ram-total">0</span> GB</span>
-                <span id="gamer-ram-pct">0%</span>
+              <div style="margin-top:12px;">
+                <div style="font-size:11.5px; color:var(--ink-2); display:flex; justify-content:space-between;">
+                  <span>RAM PC: <strong id="gamer-ram-used" style="color:var(--ink);">0</strong> / <span id="gamer-ram-total">0</span> GB</span>
+                  <span id="gamer-ram-pct">0%</span>
+                </div>
+                <div class="progress-bar" style="margin-top:5px;"><div class="progress-fill" id="gamer-ram-bar" style="width:0%; background:linear-gradient(90deg, #0ea5e9, var(--cyan));"></div></div>
               </div>
             </div>
 
             <!-- Ping & Latência Card -->
             <div class="card" style="padding:16px;">
-              <div class="card-header" style="margin-bottom:8px;">
-                <span class="card-title" style="font-size:13.5px;">📶 Latência de rede</span>
-                <span class="badge badge-cyan" id="gamer-ping-status-badge">--</span>
+              <div>
+                <div class="card-header" style="margin-bottom:8px;">
+                  <span class="card-title" style="font-size:13.5px;">📶 Ping nos Jogos (BR)</span>
+                  <span class="badge badge-cyan" id="gamer-ping-status-badge">--</span>
+                </div>
+                <div style="display:flex; align-items:baseline; gap:6px;">
+                  <div class="metric-big" style="color:var(--cyan);" id="gamer-ping-main">--</div>
+                  <span style="font-size:14px; font-weight:700; color:var(--ink-2);">ms</span>
+                </div>
               </div>
-              <div style="display:flex; align-items:baseline; gap:6px;">
-                <div class="metric-big" style="color:var(--accent-cyan);" id="gamer-ping-main">--</div>
-                <span style="font-size:14px; font-weight:700; color:var(--text-secondary);">ms</span>
-              </div>
-              <div class="kv-list" style="margin-top:6px; font-size:11.5px;">
-                <div><span>🎯 Site da Riot Games</span><strong id="ping-riot-val">-- ms</strong></div>
-                <div><span>💣 Site da Steam (Valve)</span><strong id="ping-valve-val">-- ms</strong></div>
-                <div><span>🌐 Cloudflare DNS</span><strong id="ping-cf-val">-- ms</strong></div>
+              <div class="ping-server-list">
+                <div class="ping-server-row"><span>🎯 Riot Games</span><strong id="ping-riot-val">-- ms</strong></div>
+                <div class="ping-server-row"><span>💣 Valve / CS2</span><strong id="ping-valve-val">-- ms</strong></div>
+                <div class="ping-server-row"><span>🌐 Cloudflare</span><strong id="ping-cf-val">-- ms</strong></div>
               </div>
             </div>
           </div>
 
           <!-- Gaming Tweaks & Anti-Lag Control Card -->
           <div class="card" style="margin-bottom:20px;">
-            <div class="card-header">
+            <div class="card-header" style="margin-bottom:4px;">
               <div>
                 <div class="card-title">Ajustes Anti-Lag & Otimizações de Entrada (Input Lag)</div>
                 <div class="card-subtitle">Reduza o tempo de resposta e elimine micro-travamentos (stutters) durante suas partidas</div>
               </div>
             </div>
-            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:14px; padding:16px 20px;">
-              <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; background:rgba(255,255,255,0.02); border:1px solid var(--border-color); border-radius:10px;">
+            <div class="tweaks-bento-2">
+              <div class="tweak-toggle-card">
                 <div>
-                  <div style="font-weight:600; font-size:13px; color:var(--text-primary);">Precisão de Mouse 1:1 (Sem Aceleração)</div>
-                  <div style="font-size:11.5px; color:var(--text-secondary);">Desativa aceleração artificial do Windows para mira bruta consistente em FPS.</div>
+                  <div style="font-weight:700; font-size:13.5px; color:var(--ink);">Precisão de Mouse 1:1 (Sem Aceleração)</div>
+                  <div style="font-size:11.5px; color:var(--ink-2); margin-top:2px;">Desativa aceleração artificial do Windows para mira bruta consistente em FPS.</div>
                 </div>
-                <label class="switch" style="margin-left:12px;">
+                <label class="switch">
                   <input type="checkbox" id="tweak-mouse-raw" onchange="toggleMouseRawInput(this.checked)">
                   <span class="slider"></span>
                 </label>
               </div>
 
-              <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; background:rgba(255,255,255,0.02); border:1px solid var(--border-color); border-radius:10px;">
+              <div class="tweak-toggle-card">
                 <div>
-                  <div style="font-weight:600; font-size:13px; color:var(--text-primary);">Auto Game Booster (Prioridade Alta)</div>
-                  <div style="font-size:11.5px; color:var(--text-secondary);">Eleva a prioridade do jogo e reduz processos secundários em segundo plano.</div>
+                  <div style="font-weight:700; font-size:13.5px; color:var(--ink);">Auto Game Booster (Prioridade Alta)</div>
+                  <div style="font-size:11.5px; color:var(--ink-2); margin-top:2px;">Eleva a prioridade do jogo e reduz processos secundários em segundo plano.</div>
                 </div>
-                <label class="switch" style="margin-left:12px;">
+                <label class="switch">
                   <input type="checkbox" id="tweak-auto-booster" onchange="toggleGameBooster(this.checked)" checked>
                   <span class="slider"></span>
                 </label>
@@ -1254,8 +1309,28 @@
     </div>
   </div>
 
+  <!-- Quick Command Palette (Ctrl+K) -->
+  <div id="cmd-modal-backdrop" class="modal-backdrop" hidden>
+    <div class="modal cmd-modal" role="dialog" aria-modal="true" aria-label="Comando rápido">
+      <div class="cmd-input-row">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input id="cmd-palette-input" class="cmd-input" type="text" placeholder="Ir para uma aba ou executar ação (ex: Jogos, Cache, Turbo, RAM)..." autocomplete="off" />
+        <button class="btn btn-sm btn-secondary" onclick="closeCommandPalette()">Esc</button>
+      </div>
+      <ul id="cmd-palette-list" class="cmd-list"></ul>
+    </div>
+  </div>
+
   <div id="toast-container"></div>
 
-  <script src="/static/app.js"></script>
+  <script defer src="/static/js/core.js"></script>
+  <script defer src="/static/js/dashboard.js"></script>
+  <script defer src="/static/js/cleaner.js"></script>
+  <script defer src="/static/js/games.js"></script>
+  <script defer src="/static/js/optimizer.js"></script>
+  <script defer src="/static/js/manager.js"></script>
+  <script defer src="/static/js/software_updater.js"></script>
+  <script defer src="/static/js/system.js"></script>
+  <script defer src="/static/js/main.js"></script>
 </body>
 </html>

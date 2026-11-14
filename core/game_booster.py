@@ -14,6 +14,7 @@ When the game closes:
 
 import ctypes
 import json
+import multiprocessing
 import os
 from pathlib import Path
 import re
@@ -28,6 +29,42 @@ from core.history import get_data_dir, record_action
 
 DATA_DIR = get_data_dir()
 BOOSTER_CONFIG_FILE = DATA_DIR / "game_booster.json"
+CUSTOM_GAMES_FILE = DATA_DIR / "custom_games.json"
+
+
+def _load_custom_games_config() -> Dict[str, Any]:
+    """Load optional user-configured game folders and exe->title overrides from custom_games.json."""
+    if not CUSTOM_GAMES_FILE.exists():
+        return {"folders": [], "games": {}}
+    try:
+        with open(CUSTOM_GAMES_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return {"folders": [], "games": {}}
+        folders = [str(p) for p in data.get("folders", []) if isinstance(p, str)]
+        games = {
+            str(k).lower(): str(v)
+            for k, v in (data.get("games", {}) or {}).items()
+            if isinstance(k, str) and isinstance(v, str)
+        }
+        return {"folders": folders, "games": games}
+    except Exception:
+        return {"folders": [], "games": {}}
+
+
+def _get_foreground_pid() -> Optional[int]:
+    """Return the PID owning the currently focused Windows window, if available."""
+    if os.name != "nt":
+        return None
+    try:
+        hwnd = ctypes.windll.user32.GetForegroundWindow()
+        if not hwnd:
+            return None
+        pid = ctypes.c_ulong(0)
+        ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        return int(pid.value) if pid.value else None
+    except Exception:
+        return None
 
 # Known game executables -> Friendly game title
 KNOWN_GAMES: Dict[str, str] = {
@@ -132,7 +169,6 @@ KNOWN_GAMES: Dict[str, str] = {
     # Sim Racing & Simulation
     "ams2.exe": "Automobilista 2",
     "ams2avx.exe": "Automobilista 2",
-    "ams2-career.exe": "Automobilista 2 (Zero to Apex)",
     "acs.exe": "Assetto Corsa",
     "assettocorsa.exe": "Assetto Corsa",
     "acshowroom.exe": "Assetto Corsa",
@@ -159,11 +195,9 @@ KNOWN_GAMES: Dict[str, str] = {
     "witcher3.exe": "The Witcher 3: Wild Hunt",
     "redprelauncher.exe": "The Witcher 3 Launcher",
     "onimushawots.exe": "Onimusha: Warlords",
-    "ghost in the sql data.exe": "Ghost in the SQL Data Demo",
     "nba2k25.exe": "NBA 2K25",
     "nba2k26.exe": "NBA 2K26",
     "nba2k24.exe": "NBA 2K24",
-    "hydra.exe": "Hydra Game Launcher",
     "wutheringwaves-win64-shipping.exe": "Wuthering Waves",
 }
 
@@ -343,7 +377,12 @@ def discover_installed_games() -> Dict[str, str]:
             except Exception:
                 pass
 
-    # Standard drive roots
+    # Standard drive roots + optional user-configured folders from custom_games.json
+    custom_cfg = _load_custom_games_config()
+    for custom_dir in custom_cfg["folders"]:
+        if os.path.isdir(custom_dir):
+            lib_roots.add(custom_dir)
+
     for drive in ["C", "D", "E", "F", "G"]:
         for cand in [
             rf"{drive}:\SteamLibrary",
@@ -353,10 +392,9 @@ def discover_installed_games() -> Dict[str, str]:
             rf"{drive}:\Jogos",
             rf"{drive}:\Epic Games",
             rf"{drive}:\Riot Games",
-            rf"{drive}:\TheWitcher3",
-            rf"{drive}:\ufc",
-            rf"{drive}:\Zero to Apex",
-            rf"{drive}:\hydra",
+            rf"{drive}:\XboxGames",
+            rf"{drive}:\EA Games",
+            rf"{drive}:\GOG Galaxy\Games",
         ]:
             if os.path.isdir(cand):
                 lib_roots.add(cand)
@@ -364,7 +402,7 @@ def discover_installed_games() -> Dict[str, str]:
     ignore_exes = {
         "crashreporter.exe", "crashreport.exe", "bssndrpt64.exe", "bugsplathd64.exe",
         "steamstatisticsreader.exe", "eaanticheat.installer.exe", "launcher.exe",
-        "uninstall.exe", "uninstall hydra.exe", "vc_redist.x64.exe", "7za.exe",
+        "uninstall.exe", "vc_redist.x64.exe", "7za.exe",
         "d3dconfig.exe", "d3d12stateobjectcompiler.exe", "socd_cleaner.exe",
         "pkg_extractor.exe", "hitboxer.exe", "python.exe", "pythonw.exe",
         "redist.exe", "cleanup.exe", "touchup.exe", "elevate.exe", "7z.exe",
@@ -376,7 +414,6 @@ def discover_installed_games() -> Dict[str, str]:
         "assettocorsa.exe": "Assetto Corsa",
         "ams2.exe": "Automobilista 2",
         "ams2avx.exe": "Automobilista 2",
-        "ams2-career.exe": "Automobilista 2 (Zero to Apex)",
         "f1_25.exe": "EA Sports F1 25",
         "fc26.exe": "EA Sports FC 26",
         "fc26_showcase.exe": "EA Sports FC 26 (Showcase)",
@@ -384,12 +421,8 @@ def discover_installed_games() -> Dict[str, str]:
         "tlou-ii.exe": "The Last of Us Part II",
         "tlou-ii-l.exe": "The Last of Us Part II",
         "onimushawots.exe": "Onimusha: Warlords",
-        "ghost in the sql data.exe": "Ghost in the SQL Data Demo",
         "witcher3.exe": "The Witcher 3: Wild Hunt",
-        "ufc3.exe": "EA Sports UFC 3",
-        "sacredfire-game.exe": "EA Sports UFC 3 (SacredFire)",
-        "sacredfire.exe": "EA Sports UFC 3",
-        "hydra.exe": "Hydra Game Launcher",
+        **custom_cfg["games"],
     }
 
     for root in lib_roots:
@@ -417,7 +450,7 @@ def discover_installed_games() -> Dict[str, str]:
                     except Exception:
                         pass
 
-                    for nested in ["bin", "bin\\x64_dx12", "bin\\x64", "bin64", "build", "UFC3Native", "UFC3Native\\bin"]:
+                    for nested in ["bin", "bin\\x64_dx12", "bin\\x64", "bin64", "build"]:
                         np = os.path.join(sub, nested)
                         if os.path.isdir(np):
                             try:
@@ -455,8 +488,9 @@ class GameBooster:
         self._last_catalog_refresh: float = 0.0
 
         self._load_config()
-        self._restore_pending_power_plan()
-        self._refresh_games_catalog(force=True)
+        if multiprocessing.current_process().name == "MainProcess":
+            self._restore_pending_power_plan()
+            self._refresh_games_catalog(force=True)
 
     def _load_config(self) -> None:
         if BOOSTER_CONFIG_FILE.exists():
@@ -571,20 +605,93 @@ class GameBooster:
         candidates.sort(key=lambda x: (not x["is_known_game"], -x["memory_mb"]))
         return candidates[:35]
 
+    def _match_process_as_game(
+        self, pid: int, real_name: str, pexe: str, cmdline_loader=None
+    ) -> Optional[Dict[str, Any]]:
+        """Check whether a single process matches KNOWN_GAMES or game heuristics."""
+        pname = (real_name or "").lower()
+        if not pname or pname in LAUNCHER_IGNORE:
+            return None
+        if any(k in pname for k in ["crash", "helper", "updater", "report", "service", "install", "webhelper"]):
+            return None
+
+        if pname in ("javaw.exe", "java.exe"):
+            try:
+                cmdline = cmdline_loader() if cmdline_loader else ""
+                if "minecraft" in cmdline.lower():
+                    return {
+                        "pid": pid,
+                        "name": "Minecraft (Java Edition)",
+                        "exe_name": real_name,
+                        "exe_path": pexe,
+                    }
+            except Exception:
+                pass
+            return None
+
+        if pname in KNOWN_GAMES:
+            return {
+                "pid": pid,
+                "name": KNOWN_GAMES[pname],
+                "exe_name": real_name,
+                "exe_path": pexe,
+            }
+
+        stem = Path(pname).stem.lower()
+        if any(k in stem for k in ["-game", "_game", "game-", "game_"]) or stem == "game":
+            clean = stem.replace("-game", "").replace("_game", "").replace("game-", "").replace("game_", "").replace("-", " ").replace("_", " ").strip().title()
+            display_name = f"{clean} (Jogo)" if clean else "Jogo em Execução"
+            return {"pid": pid, "name": display_name, "exe_name": real_name, "exe_path": pexe}
+
+        if "-shipping" in stem or "_shipping" in stem:
+            clean = stem.split("-shipping")[0].split("_shipping")[0].replace("-win64", "").replace("_win64", "").replace("-", " ").replace("_", " ").strip().title()
+            return {"pid": pid, "name": clean or "Jogo (Unreal Engine)", "exe_name": real_name, "exe_path": pexe}
+
+        if pexe:
+            game_dir_tokens = [
+                "\\steamapps\\common\\", "\\epic games\\", "\\riot games\\",
+                "\\xboxgames\\", "\\ea games\\", "\\origin games\\", "\\ubisoft",
+                "\\gog galaxy\\games\\", "\\games\\", "\\jogos\\", "\\game\\",
+                "\\emulators\\", "\\emuladores\\", "\\rpcs3\\", "\\yuzu\\",
+                "\\ryujinx\\", "\\cemu\\", "\\pcsx2\\",
+            ]
+            if any(sub in pexe for sub in game_dir_tokens):
+                title = Path(pexe).stem.replace("_", " ").replace("-", " ").title()
+                return {"pid": pid, "name": title, "exe_name": real_name, "exe_path": pexe}
+        return None
+
     def detect_running_game(self) -> Optional[Dict[str, Any]]:
         """Scan active processes to see if any known game is executing.
-        Uses a 2-pass strategy:
+        Prioritizes the foreground window process before falling back to process iteration:
         Pass 1: Exact matches in KNOWN_GAMES (highest confidence, avoids false positives).
         Pass 2: Heuristic detection by executable stem and folder paths.
         """
         self._refresh_games_catalog()
+
+        # Pass 0: Prioritize active foreground window process if it is a valid game
+        fg_pid = _get_foreground_pid()
+        if fg_pid and fg_pid != os.getpid():
+            try:
+                fg_proc = psutil.Process(fg_pid)
+                fg_match = self._match_process_as_game(
+                    fg_pid,
+                    fg_proc.name(),
+                    (fg_proc.exe() or "").lower(),
+                    cmdline_loader=lambda p=fg_proc: " ".join(p.cmdline()),
+                )
+                if fg_match:
+                    return fg_match
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+            except Exception:
+                pass
+
         candidates = []
         for proc in psutil.process_iter(["pid", "name", "exe"]):
             try:
                 pname = (proc.info.get("name") or "").lower()
                 if not pname or pname in LAUNCHER_IGNORE:
                     continue
-                # Skip common background utilities and handlers
                 if any(k in pname for k in ["crash", "helper", "updater", "report", "service", "install", "webhelper"]):
                     continue
 
@@ -600,7 +707,6 @@ class GameBooster:
                     except Exception:
                         pass
 
-                # javaw/java run every Java program; it is Minecraft only when the command line says so
                 if pname in ("javaw.exe", "java.exe"):
                     try:
                         if "minecraft" in " ".join(proc.cmdline()).lower():
@@ -630,64 +736,11 @@ class GameBooster:
                 continue
 
         # Pass 2: Heuristics
-        for pid, pname, real_name, pexe in candidates:
+        for pid, _pname, real_name, pexe in candidates:
             try:
-                stem = Path(pname).stem.lower()
-                # 2.1 Name heuristic (-game, _game, etc.)
-                if any(k in stem for k in ["-game", "_game", "game-", "game_"]) or stem == "game":
-                    clean = stem.replace("-game", "").replace("_game", "").replace("game-", "").replace("game_", "").replace("-", " ").replace("_", " ").strip().title()
-                    display_name = f"{clean} (Jogo)" if clean else "Jogo em Execução"
-                    return {
-                        "pid": pid,
-                        "name": display_name,
-                        "exe_name": real_name,
-                        "exe_path": pexe,
-                    }
-
-                # 2.2 Unreal Engine Shipping binaries
-                if "-shipping" in stem or "_shipping" in stem:
-                    clean = stem.split("-shipping")[0].split("_shipping")[0].replace("-win64", "").replace("_win64", "").replace("-", " ").replace("_", " ").strip().title()
-                    return {
-                        "pid": pid,
-                        "name": clean or "Jogo (Unreal Engine)",
-                        "exe_name": real_name,
-                        "exe_path": pexe,
-                    }
-
-                # 2.3 Directory heuristic
-                if pexe:
-                    is_game_dir = any(
-                        sub in pexe
-                        for sub in [
-                            "\\steamapps\\common\\",
-                            "\\epic games\\",
-                            "\\riot games\\",
-                            "\\xboxgames\\",
-                            "\\ea games\\",
-                            "\\origin games\\",
-                            "\\ubisoft",
-                            "\\gog galaxy\\games\\",
-                            "\\games\\",
-                            "\\jogos\\",
-                            "\\game\\",
-                            "\\ufc\\",
-                            "\\emulators\\",
-                            "\\emuladores\\",
-                            "\\rpcs3\\",
-                            "\\yuzu\\",
-                            "\\ryujinx\\",
-                            "\\cemu\\",
-                            "\\pcsx2\\",
-                        ]
-                    )
-                    if is_game_dir:
-                        title = Path(pexe).stem.replace("_", " ").replace("-", " ").title()
-                        return {
-                            "pid": pid,
-                            "name": title,
-                            "exe_name": real_name,
-                            "exe_path": pexe,
-                        }
+                matched = self._match_process_as_game(pid, real_name, pexe)
+                if matched:
+                    return matched
             except Exception:
                 continue
 

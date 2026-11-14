@@ -87,12 +87,14 @@ from core.updater import (
     get_download_status,
     start_download_update,
 )
+from core.lifecycle import shutdown_runtime
+from core.version import APP_VERSION
 
 # Warm up psutil CPU percent so first call isn't 0.0
 psutil.cpu_percent(interval=None)
 psutil.cpu_percent(interval=None, percpu=True)
 
-app = FastAPI(title="PulsePC Otimizador Pro", version="1.6.0")
+app = FastAPI(title="PulsePC Otimizador Pro", version=APP_VERSION)
 
 LOCAL_HOSTNAMES = {"127.0.0.1", "localhost"}
 
@@ -738,6 +740,7 @@ def main():
             window.events.shown += lambda: threading.Thread(target=_set_win32_icon, args=(win_title,), daemon=True).start()
             setup_tray_and_window(window, ICON_PATH)
             webview.start(icon=str(ICON_PATH) if ICON_PATH.exists() else None)
+            shutdown_runtime()
             return
         except Exception as e:
             print(f"[Aviso] Nao foi possivel abrir janela nativa pywebview ({e}). Abrindo no navegador...")
@@ -748,7 +751,7 @@ def main():
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        pass
+        shutdown_runtime()
 
 
 if __name__ == "__main__":

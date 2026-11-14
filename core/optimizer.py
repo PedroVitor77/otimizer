@@ -1,9 +1,10 @@
 import ctypes
+import os
 import re
 import subprocess
 import time
 import winreg
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 import psutil
 
@@ -51,7 +52,31 @@ def enable_windows_privilege(privilege_name: str) -> bool:
         return False
 
 
-def purge_standby_list(record_in_history: bool = True) -> Dict[str, Any]:
+def _default_excluded_pids() -> Set[int]:
+    """PIDs whose working set must never be stripped (self, active game, audio/compositor)."""
+    excluded: Set[int] = {os.getpid()}
+    try:
+        from core.game_booster import booster
+        if booster.active_game and booster.active_game.get("pid"):
+            excluded.add(int(booster.active_game["pid"]))
+    except Exception:
+        pass
+    try:
+        hwnd = ctypes.windll.user32.GetForegroundWindow()
+        if hwnd:
+            fg_pid = ctypes.c_ulong(0)
+            ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(fg_pid))
+            if fg_pid.value:
+                excluded.add(int(fg_pid.value))
+    except Exception:
+        pass
+    return excluded
+
+
+def purge_standby_list(
+    record_in_history: bool = True,
+    exclude_pids: Optional[Iterable[int]] = None,
+) -> Dict[str, Any]:
     """Purge Windows kernel Standby Memory List using NtSetSystemInformation (requires Admin for kernel list)."""
     vm_before = psutil.virtual_memory()
 
@@ -67,7 +92,16 @@ def purge_standby_list(record_in_history: bool = True) -> Dict[str, Any]:
     except Exception:
         pass
 
-    ram_res = optimize_ram(record_in_history=False)
+    protected = _default_excluded_pids()
+    if exclude_pids:
+        protected.update(int(p) for p in exclude_pids if p)
+
+    # When kernel Standby purge succeeds, skip full working-set eviction so active games/apps don't stutter.
+    # Fall back to safe background-only working-set trimming only if kernel purge lacked privileges.
+    trimmed_processes = 0
+    if not purged_kernel:
+        ram_res = optimize_ram(record_in_history=False, exclude_pids=protected, purge_standby=False)
+        trimmed_processes = ram_res.get('trimmed_processes', 0)
 
     time.sleep(0.3)
     vm_after = psutil.virtual_memory()
@@ -91,20 +125,30 @@ def purge_standby_list(record_in_history: bool = True) -> Dict[str, Any]:
         'freed_formatted': f'{freed_mb} MB' if freed_mb < 1024 else f'{round(freed_mb / 1024, 2)} GB',
         'percent_before': round(vm_before.percent, 1),
         'percent_after': round(vm_after.percent, 1),
-        'trimmed_processes': ram_res.get('trimmed_processes', 0),
+        'trimmed_processes': trimmed_processes,
     }
 
 
-def optimize_ram(record_in_history: bool = True) -> Dict[str, Any]:
+def optimize_ram(
+    record_in_history: bool = True,
+    exclude_pids: Optional[Iterable[int]] = None,
+    purge_standby: bool = True,
+) -> Dict[str, Any]:
     enable_windows_privilege('SeProfileSingleProcessPrivilege')
-    try:
-        cmd = ctypes.c_int(4)
-        ctypes.windll.ntdll.NtSetSystemInformation(80, ctypes.byref(cmd), ctypes.sizeof(cmd))
-    except Exception:
-        pass
+    if purge_standby:
+        try:
+            cmd = ctypes.c_int(4)
+            ctypes.windll.ntdll.NtSetSystemInformation(80, ctypes.byref(cmd), ctypes.sizeof(cmd))
+        except Exception:
+            pass
     vm_before = psutil.virtual_memory()
     used_before = vm_before.used
     pct_before = vm_before.percent
+
+    protected_pids = _default_excluded_pids()
+    if exclude_pids:
+        protected_pids.update(int(p) for p in exclude_pids if p)
+    protected_names = {"dwm.exe", "audiodg.exe", "csrss.exe", "wininit.exe"}
 
     kernel32 = ctypes.windll.kernel32
     psapi = ctypes.windll.psapi
@@ -112,7 +156,8 @@ def optimize_ram(record_in_history: bool = True) -> Dict[str, Any]:
     trimmed_count = 0
     for proc in psutil.process_iter(["pid", "name"]):
         pid = proc.info.get("pid")
-        if not pid or pid <= 4:
+        pname = (proc.info.get("name") or "").lower()
+        if not pid or pid <= 4 or pid in protected_pids or pname in protected_names:
             continue
         handle = None
         try:

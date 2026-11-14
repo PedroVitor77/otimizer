@@ -1,4 +1,5 @@
 import ctypes
+import ctypes.wintypes as wintypes
 import json
 import os
 import platform
@@ -7,7 +8,7 @@ import subprocess
 import threading
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import psutil
 
@@ -21,7 +22,110 @@ _hw_cache: Optional[Dict[str, Any]] = None
 _hw_cache_lock = threading.Lock()
 _gpu_live_cache: Dict[str, Any] = {"load": None, "temp": None, "mem_used_mb": None, "mem_total_mb": None, "name": None, "vendor": None, "last_check": 0.0}
 _gpu_static_info: Optional[Dict[str, Any]] = None
-_thermal_cache: Dict[str, Any] = {"temp": None, "last_check": 0.0}
+_thermal_cache: Dict[str, Any] = {"temp": None, "last_check": 0.0, "unsupported": False}
+
+
+class _PdhGpuSampler:
+    """Zero-subprocess GPU & thermal counter sampler using Windows pdh.dll."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._initialized = False
+        self._failed = False
+        self._query = None
+        self._c_3d = None
+        self._c_mem = None
+        self._c_therm = None
+
+    def _init_locked(self) -> bool:
+        if self._initialized:
+            return True
+        if self._failed or os.name != "nt":
+            return False
+        try:
+            pdh = ctypes.windll.pdh
+            q = wintypes.HANDLE()
+            if pdh.PdhOpenQueryW(None, 0, ctypes.byref(q)) != 0:
+                self._failed = True
+                return False
+
+            c3d = wintypes.HANDLE()
+            cmem = wintypes.HANDLE()
+            cth = wintypes.HANDLE()
+            ok_3d = pdh.PdhAddEnglishCounterW(q, r"\GPU Engine(*engtype_3D)\Utilization Percentage", 0, ctypes.byref(c3d)) == 0
+            ok_mem = pdh.PdhAddEnglishCounterW(q, r"\GPU Adapter Memory(*)\Dedicated Usage", 0, ctypes.byref(cmem)) == 0
+            ok_th = pdh.PdhAddEnglishCounterW(q, r"\Thermal Zone Information(*)\Temperature", 0, ctypes.byref(cth)) == 0
+
+            if not (ok_3d or ok_mem or ok_th):
+                pdh.PdhCloseQuery(q)
+                self._failed = True
+                return False
+
+            pdh.PdhCollectQueryData(q)
+            time.sleep(0.08)
+            pdh.PdhCollectQueryData(q)
+
+            self._query = q
+            self._c_3d = c3d if ok_3d else None
+            self._c_mem = cmem if ok_mem else None
+            self._c_therm = cth if ok_th else None
+            self._initialized = True
+            return True
+        except Exception:
+            self._failed = True
+            return False
+
+    @staticmethod
+    def _read_double_array(counter_handle) -> List[float]:
+        if not counter_handle:
+            return []
+        pdh = ctypes.windll.pdh
+        PDH_FMT_DOUBLE = 0x00000200
+
+        class _PDH_FMT_COUNTERVALUE(ctypes.Structure):
+            _fields_ = [("CStatus", wintypes.DWORD), ("_pad", wintypes.DWORD), ("doubleValue", ctypes.c_double)]
+
+        class _PDH_FMT_COUNTERVALUE_ITEM_W(ctypes.Structure):
+            _fields_ = [("szName", wintypes.LPWSTR), ("FmtValue", _PDH_FMT_COUNTERVALUE)]
+
+        buf_sz = wintypes.DWORD(0)
+        count = wintypes.DWORD(0)
+        pdh.PdhGetFormattedCounterArrayW(counter_handle, PDH_FMT_DOUBLE, ctypes.byref(buf_sz), ctypes.byref(count), None)
+        if buf_sz.value == 0:
+            return []
+        buf = ctypes.create_string_buffer(buf_sz.value)
+        if pdh.PdhGetFormattedCounterArrayW(counter_handle, PDH_FMT_DOUBLE, ctypes.byref(buf_sz), ctypes.byref(count), buf) != 0:
+            return []
+        arr = ctypes.cast(buf, ctypes.POINTER(_PDH_FMT_COUNTERVALUE_ITEM_W))
+        return [float(arr[i].FmtValue.doubleValue) for i in range(count.value) if arr[i].FmtValue.CStatus == 0]
+
+    def sample(self) -> Optional[Tuple[Optional[float], Optional[int], Optional[float]]]:
+        """Return (gpu_3d_load_pct, gpu_dedicated_bytes, thermal_celsius) via PDH."""
+        with self._lock:
+            if not self._init_locked():
+                return None
+            try:
+                if ctypes.windll.pdh.PdhCollectQueryData(self._query) != 0:
+                    return None
+                loads = self._read_double_array(self._c_3d)
+                mems = self._read_double_array(self._c_mem)
+                therms = self._read_double_array(self._c_therm)
+
+                load_pct = min(100.0, max(0.0, sum(loads))) if loads else None
+                ded_bytes = int(max(mems)) if mems else None
+                temp_c: Optional[float] = None
+                if therms:
+                    # Windows Thermal Zone Temperature counter reports Kelvin
+                    k_val = therms[0]
+                    c_val = round(k_val - 273.15, 1) if k_val > 200 else round(k_val, 1)
+                    if 0 < c_val < 130:
+                        temp_c = c_val
+                return (load_pct, ded_bytes, temp_c)
+            except Exception:
+                return None
+
+
+_pdh_sampler = _PdhGpuSampler()
 
 
 def _get_gpu_static_info() -> Dict[str, Any]:
@@ -73,9 +177,19 @@ def _get_gpu_static_info() -> Dict[str, Any]:
 def _query_acpi_thermal() -> Optional[float]:
     global _thermal_cache
     now = time.time()
-    if now - _thermal_cache["last_check"] < 4.0:
+    ttl = 120.0 if _thermal_cache.get("unsupported") else 12.0
+    if now - _thermal_cache["last_check"] < ttl:
         return _thermal_cache["temp"]
     _thermal_cache["last_check"] = now
+
+    # 1. Zero-subprocess PDH Thermal Zone lookup
+    pdh_res = _pdh_sampler.sample()
+    if pdh_res is not None and pdh_res[2] is not None:
+        _thermal_cache["temp"] = pdh_res[2]
+        _thermal_cache["unsupported"] = False
+        return pdh_res[2]
+
+    # 2. Fallback to ACPI thermal zone via PowerShell with long cooldown if absent
     try:
         ps_cmd = (
             "$t = Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue | Select-Object -First 1 CurrentTemperature; "
@@ -92,7 +206,9 @@ def _query_acpi_thermal() -> Optional[float]:
             val = float(r.stdout.strip().replace(",", "."))
             if 0 < val < 130:
                 _thermal_cache["temp"] = val
+                _thermal_cache["unsupported"] = False
                 return val
+        _thermal_cache["unsupported"] = True
     except Exception:
         pass
     return _thermal_cache["temp"]
@@ -193,49 +309,64 @@ def _query_gpu_metrics() -> Dict[str, Any]:
         except Exception:
             pass
 
-    # 2. Universal Windows Performance Counters (AMD Radeon, Intel Arc/Iris, Qualcomm)
-    try:
-        ps_cmd = (
-            "$m = Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory -ErrorAction SilentlyContinue; "
-            "$maxD = 0; "
-            "foreach ($x in $m) { if ($x.DedicatedUsage -gt $maxD) { $maxD = $x.DedicatedUsage } }; "
-            "$e = Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine -ErrorAction SilentlyContinue; "
-            "$s3d = 0; "
-            "foreach ($y in $e) { if ($y.Name -like '*3D*') { $s3d += $y.UtilizationPercentage } }; "
-            'Write-Output "$maxD,$([Math]::Min(100, $s3d))"'
-        )
-        res = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
-            capture_output=True,
-            text=True,
-            timeout=2,
-            creationflags=subprocess.CREATE_NO_WINDOW,
-        )
-        if res.returncode == 0 and res.stdout.strip() and "," in res.stdout.strip():
-            parts = res.stdout.strip().split(",")
-            ded_bytes = int(parts[0]) if parts[0].isdigit() else 0
-            load_pct = int(parts[1]) if parts[1].isdigit() else 0
+    # 2. Native Windows Performance Counters via PDH (AMD Radeon, Intel Arc/Iris, Qualcomm - zero subprocess)
+    ded_bytes: Optional[int] = None
+    load_pct: Optional[float] = None
+    pdh_res = _pdh_sampler.sample()
+    if pdh_res is not None:
+        if pdh_res[0] is not None:
+            load_pct = round(pdh_res[0], 1)
+        if pdh_res[1] is not None:
+            ded_bytes = pdh_res[1]
 
-            static_info = _get_gpu_static_info()
-            gpu_name = static_info.get("name") or "Placa de Vídeo"
-            vram_mb = static_info.get("vram_mb")
-            vendor = static_info.get("vendor") or "Windows DirectX"
+    # 3. Fallback to PowerShell CIM only if PDH failed to return anything
+    if load_pct is None and ded_bytes is None:
+        try:
+            ps_cmd = (
+                "$m = Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory -ErrorAction SilentlyContinue; "
+                "$maxD = 0; "
+                "foreach ($x in $m) { if ($x.DedicatedUsage -gt $maxD) { $maxD = $x.DedicatedUsage } }; "
+                "$e = Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine -ErrorAction SilentlyContinue; "
+                "$s3d = 0; "
+                "foreach ($y in $e) { if ($y.Name -like '*3D*') { $s3d += $y.UtilizationPercentage } }; "
+                'Write-Output "$maxD,$([Math]::Min(100, $s3d))"'
+            )
+            res = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            if res.returncode == 0 and res.stdout.strip() and "," in res.stdout.strip():
+                parts = res.stdout.strip().split(",")
+                ded_bytes = int(parts[0]) if parts[0].isdigit() else 0
+                load_pct = float(int(parts[1]) if parts[1].isdigit() else 0)
+        except Exception:
+            pass
 
-            if (not vram_mb or gpu_name == "Placa de Vídeo") and _hw_cache:
-                gpus = _hw_cache.get("gpus", [])
-                if gpus:
-                    gpu_name = gpus[0].get("Name", gpu_name)
-                    if not vram_mb and gpus[0].get("AdapterRAM"):
-                        vram_mb = round(int(gpus[0]["AdapterRAM"]) / (1024 * 1024), 1)
+    if load_pct is not None or ded_bytes is not None:
+        static_info = _get_gpu_static_info()
+        gpu_name = static_info.get("name") or "Placa de Vídeo"
+        vram_mb = static_info.get("vram_mb")
+        vendor = static_info.get("vendor") or "Windows DirectX"
 
+        if (not vram_mb or gpu_name == "Placa de Vídeo") and _hw_cache:
+            gpus = _hw_cache.get("gpus", [])
+            if gpus:
+                gpu_name = gpus[0].get("Name", gpu_name)
+                if not vram_mb and gpus[0].get("AdapterRAM"):
+                    vram_mb = round(int(gpus[0]["AdapterRAM"]) / (1024 * 1024), 1)
+
+        if load_pct is not None:
             _gpu_live_cache["load"] = float(load_pct)
+        if ded_bytes is not None:
             _gpu_live_cache["mem_used_mb"] = round(ded_bytes / (1024 * 1024), 1)
-            _gpu_live_cache["mem_total_mb"] = vram_mb
-            _gpu_live_cache["name"] = gpu_name
-            _gpu_live_cache["vendor"] = vendor
-            _gpu_live_cache["temp"] = _query_acpi_thermal()
-    except Exception:
-        pass
+        _gpu_live_cache["mem_total_mb"] = vram_mb
+        _gpu_live_cache["name"] = gpu_name
+        _gpu_live_cache["vendor"] = vendor
+        # Do not copy CPU/motherboard ACPI thermal zone onto gpu["temp"]; keep None when no real GPU temp sensor exists
+        _gpu_live_cache["temp"] = None
 
     return _gpu_live_cache
 

@@ -10,10 +10,16 @@
 :root {
   color-scheme: dark;
 
-  --bg: #070807;
-  --sidebar: #0b0c0b;
-  --panel: #121412;
-  --panel-2: #191c18;
+  --bg: #080A0C;
+  --sidebar: #0A0D10;
+  --panel: #101418;
+  --panel-2: #151A20;
+  --sunken: #07090B;
+  --line: rgba(255, 255, 255, 0.068);
+  --line-strong: rgba(255, 255, 255, 0.14);
+  --cyan: #38BDF8;
+  --cyan-soft: rgba(56, 189, 248, 0.14);
+  --purple: #A78BFA;
   --sunken: #0c0d0c;
   --line: rgba(255, 255, 255, 0.06);
   --line-strong: rgba(255, 255, 255, 0.12);
@@ -30,7 +36,7 @@
   --lime-ink: #0b1104;
   --track: #1e211d;
   --grid: rgba(255, 255, 255, 0.07);
-  --ram-line: rgba(242, 245, 239, 0.45);
+  --ram-line: var(--cyan);
 
   --ok: var(--lime);
   --warn: #f5b83d;
@@ -58,9 +64,10 @@
   --text-secondary: var(--ink-2);
   --text-muted: var(--ink-3);
   --border-color: var(--line);
-  --accent-cyan: var(--lime);
-  --accent-blue: var(--lime);
+  --accent-cyan: var(--cyan);
+  --accent-blue: #60A5FA;
   --accent-emerald: var(--lime);
+  --accent-purple: var(--purple);
   --accent-amber: var(--warn);
   --accent-red: var(--bad);
 }
@@ -836,21 +843,429 @@ input:focus-visible + .slider { outline: 2px solid var(--lime); outline-offset: 
 
 .games-disclaimer { font-size: 12px; color: var(--ink-3); margin-top: 18px; line-height: 1.5; max-width: 90ch; }
 
+/* ================= Redesign Precision Cyber-Minimalist (Obsidian) ================= */
+body {
+  background:
+    radial-gradient(900px 420px at 18% -8%, rgba(56, 189, 248, 0.08), transparent 65%),
+    radial-gradient(760px 380px at 88% -6%, rgba(155, 226, 45, 0.075), transparent 65%),
+    var(--bg);
+}
+
+.sidebar {
+  background: linear-gradient(180deg, #0b0e12 0%, #080a0d 100%);
+  border-right: 1px solid var(--line);
+}
+
+.nav-group-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(167, 178, 172, 0.52);
+  padding: 12px 12px 5px;
+  user-select: none;
+}
+.nav-list > .nav-group-label:first-child { padding-top: 2px; }
+
+.nav-item {
+  border: 1px solid transparent;
+  transition: background 0.16s var(--ease), border-color 0.16s var(--ease), color 0.16s var(--ease), transform 0.12s var(--ease);
+}
+.nav-item:hover {
+  background: rgba(255, 255, 255, 0.035);
+  border-color: rgba(255, 255, 255, 0.055);
+}
+.nav-item.active {
+  background: linear-gradient(90deg, rgba(155, 226, 45, 0.16) 0%, rgba(56, 189, 248, 0.05) 100%);
+  border-color: rgba(155, 226, 45, 0.32);
+  box-shadow: 0 6px 20px -10px rgba(155, 226, 45, 0.45);
+}
+.nav-item.active svg { color: var(--lime); }
+
+.topbar {
+  background: rgba(8, 10, 12, 0.72);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+
+.cmd-search-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: 11px;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  color: var(--ink-2);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.16s, background 0.16s, color 0.16s;
+}
+.cmd-search-btn:hover {
+  border-color: rgba(56, 189, 248, 0.45);
+  background: var(--panel-2);
+  color: var(--ink);
+}
+.cmd-search-btn kbd {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--cyan);
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+.cmd-modal {
+  width: min(560px, 100%);
+  padding: 0;
+  overflow: hidden;
+  border-color: rgba(56, 189, 248, 0.28);
+  background: linear-gradient(180deg, #13181e, #0d1014);
+}
+.cmd-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.cmd-input-row svg { color: var(--cyan); flex-shrink: 0; }
+.cmd-input {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.cmd-input::placeholder { color: var(--ink-3); }
+.cmd-list {
+  list-style: none;
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 8px;
+}
+.cmd-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.12s, border-color 0.12s;
+}
+.cmd-item:hover, .cmd-item.selected {
+  background: rgba(155, 226, 45, 0.1);
+  border-color: rgba(155, 226, 45, 0.28);
+}
+.cmd-item-title { font-size: 13.5px; font-weight: 700; color: var(--ink); }
+.cmd-item-desc { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+.cmd-item-tag {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--cyan);
+  background: var(--cyan-soft);
+  padding: 3px 8px;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+.cmd-empty { padding: 24px 16px; text-align: center; color: var(--ink-3); font-size: 13px; }
+
+.card {
+  background: linear-gradient(180deg, rgba(20, 25, 31, 0.94) 0%, rgba(14, 18, 22, 0.96) 100%);
+  border: 1px solid var(--line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 12px 30px -12px rgba(0, 0, 0, 0.55);
+}
+
+/* Bento Top Row (Dashboard) */
+.dash-top-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.88fr) minmax(300px, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
+  align-items: stretch;
+}
+.dash-top-row .hero-card,
+.dash-top-row .bento-alerts {
+  margin-bottom: 0;
+}
+
+.bento-hero {
+  background:
+    radial-gradient(500px 260px at 8% 12%, rgba(56, 189, 248, 0.11), transparent 68%),
+    radial-gradient(420px 240px at 95% 90%, rgba(155, 226, 45, 0.09), transparent 70%),
+    linear-gradient(180deg, rgba(20, 26, 32, 0.96), rgba(13, 17, 21, 0.98));
+  border-color: rgba(255, 255, 255, 0.085);
+}
+
+.bento-hero .hero-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tile-spark {
+  display: block;
+  width: 100%;
+  height: 24px;
+  margin-top: 8px;
+}
+
+.bento-alerts {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.bento-alerts .alerts-list {
+  flex: 1;
+}
+
+.quick-actions-footer {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.quick-actions-lbl {
+  font-size: 10.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+  margin-bottom: 8px;
+}
+.quick-actions-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.quick-chip-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 6px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.quick-chip-btn:hover {
+  border-color: rgba(155, 226, 45, 0.4);
+  background: rgba(155, 226, 45, 0.09);
+  color: var(--lime);
+}
+
+.telemetry-strip-card {
+  margin-bottom: 16px;
+  background:
+    radial-gradient(620px 200px at 50% 0%, rgba(56, 189, 248, 0.055), transparent 72%),
+    linear-gradient(180deg, rgba(20, 25, 31, 0.94), rgba(14, 18, 22, 0.96));
+}
+.telemetry-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(250px, 0.95fr);
+  gap: 20px;
+  align-items: center;
+}
+.telemetry-cores-panel {
+  padding-left: 18px;
+  border-left: 1px solid var(--line);
+}
+.telemetry-cores-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.telemetry-cores-title {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+}
+
+/* Bento Games & FPS */
+.gamer-hero-card {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(560px 240px at 0% 10%, rgba(155, 226, 45, 0.11), transparent 68%),
+    radial-gradient(480px 220px at 100% 0%, rgba(56, 189, 248, 0.1), transparent 70%),
+    linear-gradient(180deg, rgba(20, 26, 32, 0.96), rgba(13, 17, 21, 0.98));
+  border-color: rgba(255, 255, 255, 0.09);
+}
+
+.gamer-hero-top {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+}
+
+.hud-preview-pill {
+  margin-top: 14px;
+  padding: 9px 14px;
+  border-radius: 12px;
+  background: rgba(7, 9, 11, 0.78);
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+.hud-preview-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 800;
+  color: var(--cyan);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  font-size: 10.5px;
+}
+.hud-preview-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 8px var(--lime);
+}
+.hud-preview-metrics {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.gamer-bento-4 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.gamer-bento-4 .card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.fps-wave-wrap {
+  margin-top: 10px;
+  border-radius: 10px;
+  background: rgba(7, 9, 11, 0.65);
+  border: 1px solid var(--line);
+  padding: 6px 8px;
+}
+.fps-wave-wrap canvas {
+  display: block;
+  width: 100%;
+  height: 46px;
+}
+
+.gpu-ring-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 4px;
+}
+.gpu-ring-box {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  flex-shrink: 0;
+}
+.gpu-ring-box canvas {
+  display: block;
+  width: 72px;
+  height: 72px;
+}
+.gpu-ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.ping-server-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+.ping-server-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--line);
+}
+
+.tweaks-bento-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.tweak-toggle-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.024);
+  border: 1px solid var(--line);
+}
+
 /* ================= Responsivo ================= */
 @media (max-width: 1280px) {
-  .grid-4 { grid-template-columns: repeat(2, 1fr); }
+  .grid-4, .gamer-bento-4 { grid-template-columns: repeat(2, 1fr); }
+  .dash-top-row { grid-template-columns: 1fr; }
+  .telemetry-split { grid-template-columns: 1fr; }
+  .telemetry-cores-panel { padding-left: 0; border-left: 0; padding-top: 14px; border-top: 1px solid var(--line); }
 }
 @media (max-width: 1060px) {
   .dash-grid { grid-template-columns: 1fr; }
-  .grid-3, .grid-2 { grid-template-columns: 1fr; }
+  .grid-3, .grid-2, .tweaks-bento-2 { grid-template-columns: 1fr; }
+  .bento-hero .hero-tiles { grid-template-columns: repeat(2, 1fr); }
   .sidebar { width: 210px; }
   .hero-card { grid-template-columns: 1fr; }
 }
 @media (max-width: 768px) {
   .sidebar { width: 72px; padding: 12px 8px; }
-  .sidebar-logo span, .nav-item span, .sidebar-footer { display: none; }
+  .sidebar-logo span, .nav-item span, .sidebar-footer, .nav-group-label { display: none; }
   .nav-item { justify-content: center; padding: 10px; }
   .content-scroll { padding: 14px; }
+  .gamer-bento-4 { grid-template-columns: 1fr; }
+  .cmd-search-btn span { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

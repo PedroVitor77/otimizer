@@ -250,6 +250,12 @@ def quit_app():
     _cleanup_tray()
 
     try:
+        from core.lifecycle import shutdown_runtime
+        shutdown_runtime()
+    except Exception:
+        pass
+
+    try:
         if _window:
             _window.destroy()
     except Exception:
@@ -303,12 +309,10 @@ def _action_quick_boost():
     """Background worker for Tray Quick Boost."""
     def _worker():
         try:
-            from core.cleaner import clean_system_files, QUICK_CLEAN_TARGETS
-            from core.optimizer import optimize_ram
-            clean_res = clean_system_files(QUICK_CLEAN_TARGETS)
-            ram_res = optimize_ram(record_in_history=True)
-            cleaned_str = clean_res.get("cleaned_formatted", "0 B")
-            freed_ram = ram_res.get("freed_mb", 0)
+            from core.optimizer import quick_boost
+            res = quick_boost()
+            cleaned_str = res.get("disk_freed_formatted", "0 B")
+            freed_ram = res.get("ram_freed_mb", 0)
             if _tray_icon:
                 from System.Windows.Forms import ToolTipIcon
                 _tray_icon.ShowBalloonTip(
