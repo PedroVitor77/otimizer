@@ -15,6 +15,7 @@ let isAdmin = null; // null until the first metrics poll answers
 const TAB_TITLES = {
   "tab-dashboard": ["Painel", "Saúde do PC em tempo real"],
   "tab-games": ["Central Gamer & FPS", "Monitor ao vivo de telemetria, taxa de quadros e ferramentas gamer"],
+  "tab-peripherals": ["Testes de Periféricos", "Mouse, teclado, controle, monitor e áudio em tempo real"],
   "tab-cleaner": ["Limpeza", "Caches, temporários e restos de atualizações"],
   "tab-large-files": ["Arquivos grandes", "O que mais ocupa espaço no disco"],
   "tab-duplicates": ["Duplicados", "Cópias idênticas ocupando espaço em dobro"],
@@ -42,6 +43,10 @@ function switchTab(tabId) {
   document.getElementById("topbar-title").textContent = title;
   document.getElementById("topbar-subtitle").textContent = sub;
 
+  if (tabId !== "tab-peripherals" && typeof onPeripheralsTabLeave === "function") {
+    onPeripheralsTabLeave();
+  }
+
   // Lazy load tab data when switching
   if (tabId === "tab-optimizer") {
     loadWindowsTweaks();
@@ -55,12 +60,26 @@ function switchTab(tabId) {
     if (!mon || mon.style.display === "none") {
       loadGames();
     }
+  } else if (tabId === "tab-peripherals") {
+    if (typeof onPeripheralsTabEnter === "function") onPeripheralsTabEnter();
   } else if (tabId === "tab-manager") {
     loadProcesses();
   } else if (tabId === "tab-repair") {
     loadHardwareSpecs();
     loadBatteryHealth();
     loadHistoryStats();
+  }
+}
+
+function switchPeripheralsSubTab(subId, btnEl) {
+  ["sub-periph-mouse", "sub-periph-keyboard", "sub-periph-gamepad", "sub-periph-display-audio"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = id === subId ? "block" : "none";
+  });
+  document.querySelectorAll("#tab-peripherals .sub-nav-btn").forEach(b => b.classList.remove("active"));
+  if (btnEl) btnEl.classList.add("active");
+  if (typeof onPeripheralsSubTabChange === "function") {
+    onPeripheralsSubTabChange(subId);
   }
 }
 
@@ -506,6 +525,9 @@ document.getElementById("modal-backdrop").addEventListener("mousedown", (e) => {
 });
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+    if (typeof isKeyboardTesterCapturing === "function" && isKeyboardTesterCapturing()) {
+      return;
+    }
     e.preventDefault();
     const cmdModal = document.getElementById("cmd-modal-backdrop");
     if (cmdModal && cmdModal.hidden) openCommandPalette();
@@ -535,6 +557,11 @@ document.addEventListener("keydown", (e) => {
 const COMMAND_PALETTE_ITEMS = [
   { title: "Painel", desc: "Saúde do PC, CPU, RAM, GPU e discos em tempo real", tag: "Aba", run: () => switchTab("tab-dashboard") },
   { title: "Jogos e FPS", desc: "Monitor gamer ao vivo, frametime, GPU e ping BR", tag: "Aba", run: () => switchTab("tab-games") },
+  { title: "Testes de Periféricos", desc: "Mouse, teclado, controle, monitor e áudio", tag: "Aba", run: () => switchTab("tab-peripherals") },
+  { title: "Testar Mouse (Polling Rate & Double-Click)", desc: "Medir Hz, clique duplo, tempo de reação e CPS", tag: "Teste", run: () => { switchTab("tab-peripherals"); switchPeripheralsSubTab("sub-periph-mouse", document.getElementById("btn-sub-periph-mouse")); } },
+  { title: "Testar Teclado (NKRO & Chattering)", desc: "Layout ABNT2/ANSI, anti-ghosting e duplo disparo", tag: "Teste", run: () => { switchTab("tab-peripherals"); switchPeripheralsSubTab("sub-periph-keyboard", document.getElementById("btn-sub-periph-keyboard")); } },
+  { title: "Testar Controle / Gamepad (Stick Drift)", desc: "Analógicos X/Y, gatilhos, botões e vibração", tag: "Teste", run: () => { switchTab("tab-peripherals"); switchPeripheralsSubTab("sub-periph-gamepad", document.getElementById("btn-sub-periph-gamepad")); } },
+  { title: "Testar Monitor & Áudio (Dead Pixel / Estéreo)", desc: "Dead pixel em tela cheia, Hz, ghosting, som L/R e mic", tag: "Teste", run: () => { switchTab("tab-peripherals"); switchPeripheralsSubTab("sub-periph-display-audio", document.getElementById("btn-sub-periph-display")); } },
   { title: "Limpeza", desc: "Caches, temporários e resíduos de atualização", tag: "Aba", run: () => switchTab("tab-cleaner") },
   { title: "Arquivos grandes", desc: "Encontrar arquivos que mais consomem espaço", tag: "Aba", run: () => switchTab("tab-large-files") },
   { title: "Duplicados", desc: "Localizar cópias idênticas para liberar disco", tag: "Aba", run: () => switchTab("tab-duplicates") },

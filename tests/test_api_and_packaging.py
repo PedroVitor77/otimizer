@@ -57,6 +57,7 @@ def test_index_and_modular_js_served():
         "/static/js/dashboard.js",
         "/static/js/cleaner.js",
         "/static/js/games.js",
+        "/static/js/peripherals.js",
         "/static/js/optimizer.js",
         "/static/js/manager.js",
         "/static/js/software_updater.js",
@@ -79,6 +80,17 @@ def test_index_and_modular_js_served():
         "scoreRingCanvas",
         "stripCanvas",
         "ringsCanvas",
+        "tab-peripherals",
+        "mouse-test-pad",
+        "mousePollingCanvas",
+        "kb-visual-grid",
+        "typing-stage",
+        "typing-words",
+        "gamepadStickLeft",
+        "gp-controller-svg",
+        "gp-device-select",
+        "monitorGhostingCanvas",
+        "pixel-test-overlay",
     ):
         assert expected_id in resp.text, f"Missing UI element ID {expected_id}"
 

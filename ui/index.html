@@ -28,6 +28,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 11h4M8 9v4M15 12h.01M18 10h.01"/><path d="M17.3 5H6.7a4 4 0 00-3.95 3.4L2 14.6A2.5 2.5 0 006.4 16.5L8 14h8l1.6 2.5a2.5 2.5 0 004.4-1.9l-.75-6.2A4 4 0 0017.3 5z"/></svg>
         <span>Jogos e FPS</span>
       </li>
+      <li class="nav-item" data-tab="tab-peripherals">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="3" width="12" height="18" rx="6"/><path d="M12 7v4"/></svg>
+        <span>Periféricos</span>
+      </li>
       <li class="nav-group-label">Manutenção</li>
       <li class="nav-item" data-tab="tab-cleaner">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
@@ -1241,6 +1245,624 @@
         </div>
       </section>
 
+      <!-- ================= TAB: TESTES DE PERIFÉRICOS ================= -->
+      <section id="tab-peripherals" class="tab-pane">
+        <div class="sub-nav">
+          <button class="sub-nav-btn active" id="btn-sub-periph-mouse" onclick="switchPeripheralsSubTab('sub-periph-mouse', this)">🖱️ Mouse</button>
+          <button class="sub-nav-btn" id="btn-sub-periph-keyboard" onclick="switchPeripheralsSubTab('sub-periph-keyboard', this)">⌨️ Teclado</button>
+          <button class="sub-nav-btn" id="btn-sub-periph-gamepad" onclick="switchPeripheralsSubTab('sub-periph-gamepad', this)">🎮 Controle</button>
+          <button class="sub-nav-btn" id="btn-sub-periph-display" onclick="switchPeripheralsSubTab('sub-periph-display-audio', this)">🖥️ Monitor & Áudio</button>
+        </div>
+
+        <!-- SUB-TAB 1: MOUSE -->
+        <div id="sub-periph-mouse">
+          <div class="periph-grid-2">
+            <!-- Botões & Double-Click -->
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Botões, Scroll & Detector de Double-Click</div>
+                  <div class="card-subtitle">Cliques involuntários abaixo de 80 ms no mesmo botão indicam desgaste no switch</div>
+                </div>
+                <button class="btn btn-sm btn-secondary" onclick="resetMouseTest()">Resetar</button>
+              </div>
+
+              <div class="mouse-test-stage">
+                <svg class="mouse-diagram" viewBox="0 0 150 210" aria-label="Diagrama do mouse">
+                  <rect x="24" y="14" width="102" height="184" rx="50" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.14)" stroke-width="1.6"/>
+                  <path id="m-svg-left" class="m-part" d="M74 16 H62 C38 16 26 36 26 62 V94 H74 Z"/>
+                  <path id="m-svg-right" class="m-part" d="M76 16 H88 C112 16 124 36 124 62 V94 H76 Z"/>
+                  <rect id="m-svg-middle" class="m-part" x="67" y="42" width="16" height="34" rx="8"/>
+                  <polygon id="m-svg-scroll-up" class="m-part" points="75,26 69,36 81,36"/>
+                  <polygon id="m-svg-scroll-down" class="m-part" points="75,90 69,80 81,80"/>
+                  <rect id="m-svg-side5" class="m-part" x="15" y="74" width="9" height="24" rx="4"/>
+                  <rect id="m-svg-side4" class="m-part" x="15" y="104" width="9" height="24" rx="4"/>
+                </svg>
+
+                <div>
+                  <div class="mouse-pad" id="mouse-test-pad">
+                    <div style="font-size:14px; font-weight:800; color:var(--ink);" id="mouse-pad-title">Clique e role o scroll aqui</div>
+                    <div style="font-size:12px; color:var(--ink-2); margin-top:4px;" id="mouse-pad-detail">Testa LMB, RMB, Meio, Laterais (MB4/MB5) e Scroll</div>
+                    <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; justify-content:center;">
+                      <span class="badge badge-cyan" id="mouse-last-interval">Intervalo: -- ms</span>
+                      <span class="badge badge-green" id="mouse-dc-badge">0 double-clicks suspeitos</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mouse-btn-stats">
+                <div class="m-stat-chip" id="m-stat-0"><span>Esquerdo</span><strong id="m-cnt-0">0</strong></div>
+                <div class="m-stat-chip" id="m-stat-2"><span>Direito</span><strong id="m-cnt-2">0</strong></div>
+                <div class="m-stat-chip" id="m-stat-1"><span>Meio</span><strong id="m-cnt-1">0</strong></div>
+                <div class="m-stat-chip" id="m-stat-3"><span>Voltar (MB4)</span><strong id="m-cnt-3">0</strong></div>
+                <div class="m-stat-chip" id="m-stat-4"><span>Avançar (MB5)</span><strong id="m-cnt-4">0</strong></div>
+                <div class="m-stat-chip" id="m-stat-scroll"><span>Scroll ↑/↓</span><strong id="m-cnt-scroll">0 / 0</strong></div>
+              </div>
+            </div>
+
+            <!-- Polling Rate (Hz) -->
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Polling Rate do Sensor (Hz)</div>
+                  <div class="card-subtitle">Mova o mouse em círculos contínuos dentro da área abaixo</div>
+                </div>
+                <span class="badge badge-cyan" id="mouse-polling-tier">Aguardando</span>
+              </div>
+
+              <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+                <div style="display:flex; align-items:baseline; gap:6px;">
+                  <div class="metric-big" style="color:var(--lime);" id="mouse-hz-current">0</div>
+                  <span style="font-size:14px; font-weight:700; color:var(--ink-2);">Hz</span>
+                </div>
+                <div style="display:flex; gap:14px; font-size:12px; color:var(--ink-2);">
+                  <span>Pico: <strong id="mouse-hz-peak" style="color:var(--cyan);">0 Hz</strong></span>
+                  <span>Média: <strong id="mouse-hz-avg" style="color:var(--ink);">0 Hz</strong></span>
+                </div>
+              </div>
+
+              <div class="polling-canvas-wrap" id="mouse-polling-zone">
+                <canvas id="mousePollingCanvas"></canvas>
+              </div>
+              <div style="font-size:11.5px; color:var(--ink-3); margin-top:8px;">
+                Usa eventos nativos <code>getCoalescedEvents()</code> do navegador para capturar taxas acima de 125/500/1000 Hz.
+              </div>
+            </div>
+          </div>
+
+          <div class="periph-grid-2">
+            <!-- Reaction Time -->
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Tempo de Reação Visual (Reflexo)</div>
+                  <div class="card-subtitle">Clique assim que o painel ficar verde neon</div>
+                </div>
+                <div style="font-size:12px; color:var(--ink-2);">
+                  Melhor: <strong id="reaction-best" style="color:var(--lime);">-- ms</strong> · Média: <strong id="reaction-avg" style="color:var(--cyan);">-- ms</strong>
+                </div>
+              </div>
+              <div class="reaction-pad" id="reaction-pad" onclick="handleReactionClick()">
+                <div class="reaction-pad-big" id="reaction-pad-title">Clique para iniciar</div>
+                <div class="reaction-pad-sub" id="reaction-pad-sub">Aguarde a luz verde aparecer e clique o mais rápido possível</div>
+              </div>
+            </div>
+
+            <!-- CPS Test -->
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Teste de CPS (Cliques por Segundo — 5s)</div>
+                  <div class="card-subtitle">Meça sua velocidade de clique com o botão esquerdo</div>
+                </div>
+                <div style="font-size:12px; color:var(--ink-2);">
+                  Recorde: <strong id="cps-best" style="color:var(--lime);">0.0 CPS</strong>
+                </div>
+              </div>
+              <div class="reaction-pad" id="cps-pad" onmousedown="handleCpsMouseDown(event)">
+                <div class="reaction-pad-big" id="cps-pad-title">Clique rápido para começar</div>
+                <div class="reaction-pad-sub" id="cps-pad-sub">Cronômetro de 5.0 segundos inicia no primeiro clique</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SUB-TAB 2: TECLADO -->
+        <div id="sub-periph-keyboard" style="display:none;">
+          <div class="card" style="margin-bottom:16px;">
+            <div class="card-header" style="flex-wrap:wrap; gap:12px;">
+              <div>
+                <div class="card-title">Teclado Interativo, Anti-Ghosting (NKRO) & Chattering</div>
+                <div class="card-subtitle">Pressione qualquer tecla — verde indica pressionada agora, azul indica já testada</div>
+              </div>
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <div class="seg">
+                  <button class="seg-btn active" id="kb-layout-abnt2" onclick="setKeyboardLayout('abnt2', this)">ABNT2 (BR)</button>
+                  <button class="seg-btn" id="kb-layout-ansi" onclick="setKeyboardLayout('ansi', this)">ANSI (US)</button>
+                </div>
+                <button class="btn btn-sm btn-secondary" id="btn-kb-capture" onclick="toggleKeyboardCapture()">🔒 Captura: Ativa</button>
+                <button class="btn btn-sm btn-secondary" onclick="resetKeyboardTest()">Resetar</button>
+              </div>
+            </div>
+
+            <div class="grid-4" style="margin-bottom:14px;">
+              <div class="disk-item" style="margin-bottom:0;">
+                <div style="font-size:11.5px; color:var(--ink-2);">Última Tecla</div>
+                <div style="font-size:19px; font-weight:800; color:var(--lime); margin-top:2px;" id="kb-last-key">--</div>
+                <div style="font-size:11px; color:var(--ink-3); font-family:var(--font-mono);" id="kb-last-code">code: --</div>
+              </div>
+              <div class="disk-item" style="margin-bottom:0;">
+                <div style="font-size:11.5px; color:var(--ink-2);">Simultâneas (NKRO)</div>
+                <div style="font-size:19px; font-weight:800; color:var(--cyan); margin-top:2px;"><span id="kb-active-count">0</span> <small style="font-size:12px; color:var(--ink-2);">/ pico <strong id="kb-peak-nkro">0</strong></small></div>
+                <div style="font-size:11px; color:var(--ink-3);">Segure várias teclas juntas</div>
+              </div>
+              <div class="disk-item" style="margin-bottom:0;">
+                <div style="font-size:11.5px; color:var(--ink-2);">Teclas Testadas</div>
+                <div style="font-size:19px; font-weight:800; color:var(--ink); margin-top:2px;" id="kb-tested-count">0 / 0</div>
+                <div style="font-size:11px; color:var(--ink-3);">Cobertura do mapa</div>
+              </div>
+              <div class="disk-item" style="margin-bottom:0;">
+                <div style="font-size:11.5px; color:var(--ink-2);">Chattering (&lt; 45 ms)</div>
+                <div style="font-size:19px; font-weight:800; color:var(--lime); margin-top:2px;" id="kb-chatter-count">0</div>
+                <div style="font-size:11px; color:var(--ink-3);" id="kb-chatter-detail">Sem duplo disparo</div>
+              </div>
+            </div>
+
+            <div class="kb-shell">
+              <div id="kb-visual-grid" class="kb-layout"></div>
+            </div>
+
+            <div style="margin-top:12px;">
+              <div style="font-size:11px; font-weight:700; color:var(--ink-3); text-transform:uppercase; letter-spacing:0.06em;">Histórico recente</div>
+              <div class="kb-history-strip" id="kb-history-strip">
+                <span class="kb-pill">Pressione qualquer tecla para iniciar...</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Minigame de Digitação de Palavras (WPM) -->
+          <div class="card" style="margin-bottom:16px;">
+            <div class="card-header" style="flex-wrap:wrap; gap:10px;">
+              <div>
+                <div class="card-title">⚡ Desafio de Digitação (Minigame WPM)</div>
+                <div class="card-subtitle">Clique na caixa abaixo e digite as palavras o mais rápido possível — o teclado acima continua iluminando ao vivo</div>
+              </div>
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <div class="seg" id="typing-dur-seg">
+                  <button class="seg-btn" onclick="setTypingDuration(15, this)">15s</button>
+                  <button class="seg-btn active" onclick="setTypingDuration(30, this)">30s</button>
+                  <button class="seg-btn" onclick="setTypingDuration(60, this)">60s</button>
+                </div>
+                <button class="btn btn-sm btn-secondary" onclick="resetTypingGame(true)">↻ Nova rodada</button>
+              </div>
+            </div>
+
+            <div class="typing-stats-bar">
+              <div class="typing-stat-box">
+                <small>Velocidade</small>
+                <strong id="typing-wpm" style="color:var(--lime);">0 PPM</strong>
+              </div>
+              <div class="typing-stat-box">
+                <small>Precisão</small>
+                <strong id="typing-acc" style="color:var(--cyan);">100%</strong>
+              </div>
+              <div class="typing-stat-box">
+                <small>Tempo</small>
+                <strong id="typing-timer">30s</strong>
+              </div>
+              <div class="typing-stat-box">
+                <small>Recorde</small>
+                <strong id="typing-best" style="color:var(--ink);">0 PPM</strong>
+              </div>
+            </div>
+
+            <div class="typing-stage" id="typing-stage" onclick="focusTypingGame()">
+              <input id="typing-hidden-input" class="typing-hidden-input" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+              <div class="typing-words" id="typing-words"></div>
+              <div class="typing-focus-hint">
+                <span id="typing-status-hint">Clique aqui e comece a digitar para iniciar o cronômetro</span>
+                <span>Combo: <strong id="typing-combo" style="color:var(--lime);">0</strong></span>
+              </div>
+            </div>
+
+            <div class="typing-result-banner" id="typing-result-banner" hidden>
+              <div>
+                <div style="font-size:15px; font-weight:800; color:var(--lime);" id="typing-result-headline">Rodada concluída!</div>
+                <div style="font-size:12.5px; color:var(--ink-2); margin-top:2px;" id="typing-result-detail"></div>
+              </div>
+              <button class="btn btn-sm btn-primary" onclick="resetTypingGame(true)">Jogar novamente</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- SUB-TAB 3: CONTROLE / GAMEPAD -->
+        <div id="sub-periph-gamepad" style="display:none;">
+          <div class="card" style="margin-bottom:16px;">
+            <div class="card-header" style="flex-wrap:wrap; gap:10px;">
+              <div>
+                <div class="card-title">Controle / Gamepad — Stick Drift, Gatilhos e Botões</div>
+                <div class="card-subtitle" id="gp-device-name">Conecte um controle (Xbox, DualSense, DualShock ou genérico) e pressione qualquer botão</div>
+              </div>
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <select id="gp-device-select" class="select-control" onchange="selectGamepadIndex(this.value)" style="display:none; max-width:280px; padding:6px 10px; font-size:12.5px;" aria-label="Selecionar controle"></select>
+                <span class="badge badge-cyan" id="gp-status-badge">Aguardando controle</span>
+                <button class="btn btn-sm btn-secondary" id="btn-gp-circ" onclick="toggleCircularityTest()">◎ Testar Circularidade</button>
+                <button class="btn btn-sm btn-primary" id="btn-gp-rumble" onclick="testGamepadVibration()" disabled>📳 Testar Vibração</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="periph-grid-2">
+            <div class="card">
+              <div class="card-header">
+                <span class="card-title">Analógico Esquerdo (LS)</span>
+                <span class="badge badge-green" id="gp-ls-drift-badge">Centro OK</span>
+              </div>
+              <div class="stick-card-body">
+                <canvas id="gamepadStickLeft" class="stick-canvas" width="148" height="148"></canvas>
+                <div style="flex:1; min-width:0;">
+                  <div class="kv-list" style="margin-top:0;">
+                    <div><span>Eixo X</span><strong id="gp-ls-x">0.0000</strong></div>
+                    <div><span>Eixo Y</span><strong id="gp-ls-y">0.0000</strong></div>
+                    <div><span>Posição atual</span><strong id="gp-ls-mag">0.0%</strong></div>
+                    <div><span>Erro Circularidade</span><strong id="gp-ls-circ" style="color:var(--cyan);">--</strong></div>
+                  </div>
+                  <div style="margin-top:12px;">
+                    <div style="display:flex; justify-content:space-between; font-size:11.5px; color:var(--ink-2);">
+                      <span>Gatilho Esquerdo (LT / L2)</span>
+                      <strong id="gp-lt-val">0%</strong>
+                    </div>
+                    <div class="progress-bar" style="margin-top:5px;"><div class="progress-fill" id="gp-lt-bar" style="width:0%;"></div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <span class="card-title">Analógico Direito (RS)</span>
+                <span class="badge badge-green" id="gp-rs-drift-badge">Centro OK</span>
+              </div>
+              <div class="stick-card-body">
+                <canvas id="gamepadStickRight" class="stick-canvas" width="148" height="148"></canvas>
+                <div style="flex:1; min-width:0;">
+                  <div class="kv-list" style="margin-top:0;">
+                    <div><span>Eixo X</span><strong id="gp-rs-x">0.0000</strong></div>
+                    <div><span>Eixo Y</span><strong id="gp-rs-y">0.0000</strong></div>
+                    <div><span>Posição atual</span><strong id="gp-rs-mag">0.0%</strong></div>
+                    <div><span>Erro Circularidade</span><strong id="gp-rs-circ" style="color:var(--cyan);">--</strong></div>
+                  </div>
+                  <div style="margin-top:12px;">
+                    <div style="display:flex; justify-content:space-between; font-size:11.5px; color:var(--ink-2);">
+                      <span>Gatilho Direito (RT / R2)</span>
+                      <strong id="gp-rt-val">0%</strong>
+                    </div>
+                    <div class="progress-bar" style="margin-top:5px;"><div class="progress-fill" id="gp-rt-bar" style="width:0%; background:linear-gradient(90deg, #0ea5e9, var(--cyan));"></div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header" style="flex-wrap:wrap; gap:10px;">
+              <div>
+                <div class="card-title">Mapa Visual Interativo do Controle</div>
+                <div class="card-subtitle">Cada botão acende em verde ao pressionar e fica azul após testado</div>
+              </div>
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <div class="seg" id="gp-style-seg">
+                  <button class="seg-btn active" id="gp-style-xbox" onclick="setGamepadStyle('xbox', this)">Xbox</button>
+                  <button class="seg-btn" id="gp-style-ps" onclick="setGamepadStyle('ps', this)">PlayStation</button>
+                </div>
+                <span class="badge badge-cyan" id="gp-tested-badge">0 / 17 testados</span>
+                <button class="btn btn-sm btn-secondary" onclick="resetGamepadTested()">Resetar</button>
+              </div>
+            </div>
+
+            <div class="gp-visual-wrap">
+              <svg class="gp-controller-svg" id="gp-controller-svg" viewBox="0 0 640 380" aria-label="Mapa visual interativo do controle">
+                <defs>
+                  <linearGradient id="gpBodyXbox" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stop-color="#222a34"/>
+                    <stop offset="45%" stop-color="#151b23"/>
+                    <stop offset="100%" stop-color="#0d1117"/>
+                  </linearGradient>
+                  <linearGradient id="gpBodyPsLight" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stop-color="#2b3440"/>
+                    <stop offset="55%" stop-color="#1b222c"/>
+                    <stop offset="100%" stop-color="#12171f"/>
+                  </linearGradient>
+                  <linearGradient id="gpBodyPsDark" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stop-color="#131820"/>
+                    <stop offset="100%" stop-color="#090c10"/>
+                  </linearGradient>
+                  <linearGradient id="gpBtnGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stop-color="#252f3c"/>
+                    <stop offset="100%" stop-color="#131820"/>
+                  </linearGradient>
+                  <linearGradient id="gpTriggerFillGrad" x1="0%" y1="100%" x2="0%" y2="0%">
+                    <stop offset="0%" stop-color="#0284c7"/>
+                    <stop offset="100%" stop-color="#9BE22D"/>
+                  </linearGradient>
+                  <linearGradient id="gpRimLight" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stop-color="rgba(255,255,255,0.28)"/>
+                    <stop offset="35%" stop-color="rgba(255,255,255,0.08)"/>
+                    <stop offset="100%" stop-color="rgba(255,255,255,0.03)"/>
+                  </linearGradient>
+                </defs>
+
+                <!-- ===================== SKIN 1: XBOX SERIES X|S ===================== -->
+                <g id="gp-skin-xbox">
+                  <!-- Triggers LT (6) & RT (7) tucked behind upper shoulders -->
+                  <g>
+                    <path data-gp-btn="6" class="gp-part" d="M144 62 L152 24 C155 15 166 12 182 12 C198 12 208 16 212 26 L218 62 Z"/>
+                    <clipPath id="clip-xbox-lt"><path d="M144 62 L152 24 C155 15 166 12 182 12 C198 12 208 16 212 26 L218 62 Z"/></clipPath>
+                    <rect data-gp-trigger-fill="lt" class="gp-trigger-fill" x="144" y="62" width="76" height="0" clip-path="url(#clip-xbox-lt)"/>
+                    <text data-gp-trigger-lbl="lt" data-gp-lbl="6" class="gp-part-lbl" x="181" y="34" style="font-size:10.5px;">LT 0%</text>
+                  </g>
+                  <g>
+                    <path data-gp-btn="7" class="gp-part" d="M422 62 L428 26 C432 16 442 12 458 12 C474 12 485 15 488 24 L496 62 Z"/>
+                    <clipPath id="clip-xbox-rt"><path d="M422 62 L428 26 C432 16 442 12 458 12 C474 12 485 15 488 24 L496 62 Z"/></clipPath>
+                    <rect data-gp-trigger-fill="rt" class="gp-trigger-fill" x="422" y="62" width="76" height="0" clip-path="url(#clip-xbox-rt)"/>
+                    <text data-gp-trigger-lbl="rt" data-gp-lbl="7" class="gp-part-lbl" x="459" y="34" style="font-size:10.5px;">RT 0%</text>
+                  </g>
+
+                  <!-- Sculpted Curved Bumpers LB (4) & RB (5) hugging the chassis -->
+                  <path data-gp-btn="4" class="gp-part" d="M110 92 C122 68 158 55 214 54 C224 54 230 60 228 70 L226 78 C176 78 140 86 118 102 Z"/>
+                  <text data-gp-lbl="4" class="gp-part-lbl" x="174" y="68" style="font-size:10.5px;">LB</text>
+
+                  <path data-gp-btn="5" class="gp-part" d="M530 92 C518 68 482 55 426 54 C416 54 410 60 412 70 L414 78 C464 78 500 86 522 102 Z"/>
+                  <text data-gp-lbl="5" class="gp-part-lbl" x="466" y="68" style="font-size:10.5px;">RB</text>
+
+                  <!-- Sculpted Xbox Series X|S Ergonomic Body -->
+                  <path d="M222 76 C254 70 286 68 320 68 C354 68 386 70 418 76 C474 84 522 102 544 146 C562 184 576 238 582 288 C587 332 560 364 518 362 C486 360 462 336 442 296 C428 268 410 256 382 254 H258 C230 256 212 268 198 296 C178 336 154 360 122 362 C80 364 53 332 58 288 C64 238 78 184 96 146 C118 102 166 84 222 76 Z"
+                        fill="url(#gpBodyXbox)" stroke="url(#gpRimLight)" stroke-width="2.2"/>
+
+                  <!-- Subtle contoured grip seam highlights -->
+                  <path d="M104 206 C92 246 86 292 92 328" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="2" stroke-linecap="round"/>
+                  <path d="M536 206 C548 246 554 292 548 328" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="2" stroke-linecap="round"/>
+
+                  <!-- Top-center Xbox Guide / Home Button (16) -->
+                  <circle cx="320" cy="108" r="24" fill="#0b0f14" stroke="rgba(255,255,255,0.1)" stroke-width="1.5"/>
+                  <circle data-gp-btn="16" class="gp-part" cx="320" cy="108" r="19"/>
+                  <text data-gp-lbl="16" class="gp-part-lbl" x="320" y="108" style="font-size:13px;">✕</text>
+
+                  <!-- View (8) & Menu (9) -->
+                  <circle data-gp-btn="8" class="gp-part" cx="272" cy="150" r="12"/>
+                  <text data-gp-lbl="8" class="gp-part-lbl" x="272" y="150" style="font-size:10px;">⧉</text>
+
+                  <circle data-gp-btn="9" class="gp-part" cx="368" cy="150" r="12"/>
+                  <text data-gp-lbl="9" class="gp-part-lbl" x="368" y="150" style="font-size:11px;">≡</text>
+
+                  <!-- Share decorative pill (Xbox Series) -->
+                  <rect x="308" y="168" width="24" height="10" rx="5" fill="#10151c" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
+
+                  <!-- Left Analog Stick (LS + L3 = 10) Upper-Left -->
+                  <circle cx="168" cy="148" r="35" class="gp-stick-well"/>
+                  <g data-gp-stick="ls">
+                    <circle data-gp-btn="10" class="gp-part" cx="168" cy="148" r="24"/>
+                    <circle cx="168" cy="148" r="17" class="gp-stick-cap-inner"/>
+                    <text data-gp-lbl="10" class="gp-part-lbl" x="168" y="148" style="font-size:10px;">L3</text>
+                  </g>
+
+                  <!-- Faceted Xbox D-Pad Dish (Lower-Inner-Left: 12 Up, 13 Down, 14 Left, 15 Right) -->
+                  <circle cx="236" cy="214" r="34" fill="#0b0f14" stroke="rgba(255,255,255,0.1)" stroke-width="1.5"/>
+                  <path data-gp-btn="12" class="gp-part" d="M226 184 H246 V204 L236 211 L226 204 Z"/>
+                  <text data-gp-lbl="12" class="gp-part-lbl" x="236" y="195" style="font-size:9px;">▲</text>
+                  <path data-gp-btn="13" class="gp-part" d="M226 244 H246 V224 L236 217 L226 224 Z"/>
+                  <text data-gp-lbl="13" class="gp-part-lbl" x="236" y="233" style="font-size:9px;">▼</text>
+                  <path data-gp-btn="14" class="gp-part" d="M206 204 V224 H226 L233 214 L226 204 Z"/>
+                  <text data-gp-lbl="14" class="gp-part-lbl" x="217" y="214" style="font-size:9px;">◀</text>
+                  <path data-gp-btn="15" class="gp-part" d="M266 204 V224 H246 L239 214 L246 204 Z"/>
+                  <text data-gp-lbl="15" class="gp-part-lbl" x="255" y="214" style="font-size:9px;">▶</text>
+
+                  <!-- Right Analog Stick (RS + R3 = 11) Lower-Inner-Right -->
+                  <circle cx="404" cy="214" r="35" class="gp-stick-well"/>
+                  <g data-gp-stick="rs">
+                    <circle data-gp-btn="11" class="gp-part" cx="404" cy="214" r="24"/>
+                    <circle cx="404" cy="214" r="17" class="gp-stick-cap-inner"/>
+                    <text data-gp-lbl="11" class="gp-part-lbl" x="404" y="214" style="font-size:10px;">R3</text>
+                  </g>
+
+                  <!-- Face Buttons Diamond (Y=3, X=2, B=1, A=0) Upper-Right -->
+                  <circle data-gp-btn="3" class="gp-part gp-btn-amber" cx="474" cy="118" r="16"/>
+                  <text data-gp-lbl="3" class="gp-part-lbl" x="474" y="118" style="font-size:13px;">Y</text>
+
+                  <circle data-gp-btn="2" class="gp-part gp-btn-blue" cx="442" cy="148" r="16"/>
+                  <text data-gp-lbl="2" class="gp-part-lbl" x="442" y="148" style="font-size:13px;">X</text>
+
+                  <circle data-gp-btn="1" class="gp-part gp-btn-red" cx="506" cy="148" r="16"/>
+                  <text data-gp-lbl="1" class="gp-part-lbl" x="506" y="148" style="font-size:13px;">B</text>
+
+                  <circle data-gp-btn="0" class="gp-part gp-btn-green" cx="474" cy="178" r="16"/>
+                  <text data-gp-lbl="0" class="gp-part-lbl" x="474" y="178" style="font-size:13px;">A</text>
+                </g>
+
+                <!-- ===================== SKIN 2: PLAYSTATION DUALSENSE ===================== -->
+                <g id="gp-skin-ps" style="display:none;">
+                  <!-- Triggers L2 (6) & R2 (7) -->
+                  <g>
+                    <path data-gp-btn="6" class="gp-part" d="M132 58 L140 22 C143 14 154 12 170 12 C186 12 197 15 200 24 L206 58 Z"/>
+                    <clipPath id="clip-ps-lt"><path d="M132 58 L140 22 C143 14 154 12 170 12 C186 12 197 15 200 24 L206 58 Z"/></clipPath>
+                    <rect data-gp-trigger-fill="lt" class="gp-trigger-fill" x="132" y="58" width="76" height="0" clip-path="url(#clip-ps-lt)"/>
+                    <text data-gp-trigger-lbl="lt" data-gp-lbl="6" class="gp-part-lbl" x="169" y="34" style="font-size:10.5px;">L2 0%</text>
+                  </g>
+                  <g>
+                    <path data-gp-btn="7" class="gp-part" d="M434 58 L440 24 C443 15 454 12 470 12 C486 12 497 14 500 22 L508 58 Z"/>
+                    <clipPath id="clip-ps-rt"><path d="M434 58 L440 24 C443 15 454 12 470 12 C486 12 497 14 500 22 L508 58 Z"/></clipPath>
+                    <rect data-gp-trigger-fill="rt" class="gp-trigger-fill" x="434" y="58" width="76" height="0" clip-path="url(#clip-ps-rt)"/>
+                    <text data-gp-trigger-lbl="rt" data-gp-lbl="7" class="gp-part-lbl" x="471" y="34" style="font-size:10.5px;">R2 0%</text>
+                  </g>
+
+                  <!-- Bumpers L1 (4) & R1 (5) -->
+                  <path data-gp-btn="4" class="gp-part" d="M114 84 C124 64 156 54 206 54 C214 54 218 60 218 68 L216 76 C172 76 140 82 120 94 Z"/>
+                  <text data-gp-lbl="4" class="gp-part-lbl" x="168" y="66" style="font-size:10.5px;">L1</text>
+
+                  <path data-gp-btn="5" class="gp-part" d="M526 84 C516 64 484 54 434 54 C426 54 422 60 422 68 L424 76 C468 76 500 82 520 94 Z"/>
+                  <text data-gp-lbl="5" class="gp-part-lbl" x="472" y="66" style="font-size:10.5px;">R1</text>
+
+                  <!-- DualSense Two-Tone Outer Shell -->
+                  <path d="M214 76 H426 C486 76 530 102 548 150 L578 278 C588 326 564 360 526 360 C494 360 472 332 448 286 L432 258 C422 248 408 244 392 244 H248 C232 244 218 248 208 258 L192 286 C168 332 146 360 114 360 C76 360 52 326 62 278 L92 150 C110 102 154 76 214 76 Z"
+                        fill="url(#gpBodyPsLight)" stroke="url(#gpRimLight)" stroke-width="2.2"/>
+
+                  <!-- DualSense Dark Center Faceplate Wrap -->
+                  <path d="M188 184 C202 166 226 160 256 160 H384 C414 160 438 166 452 184 L486 280 C474 302 460 314 446 286 L432 258 C422 248 408 244 392 244 H248 C232 244 218 248 208 258 L194 286 C180 314 166 302 154 280 Z"
+                        fill="url(#gpBodyPsDark)" stroke="rgba(255,255,255,0.08)" stroke-width="1.4"/>
+
+                  <!-- Iconic Central Touchpad + Side Cyan Lightbars -->
+                  <path d="M226 78 H414 L402 152 C400 158 394 162 386 162 H254 C246 162 240 158 238 152 Z"
+                        fill="#10151c" stroke="rgba(255,255,255,0.16)" stroke-width="1.6"/>
+                  <line x1="229" y1="84" x2="240" y2="148" class="gp-touchpad-glow" stroke-linecap="round"/>
+                  <line x1="411" y1="84" x2="400" y2="148" class="gp-touchpad-glow" stroke-linecap="round"/>
+                  <text class="gp-part-lbl" x="320" y="120" style="font-size:9.5px; fill:rgba(167,178,172,0.5); letter-spacing:0.12em;">TOUCHPAD</text>
+
+                  <!-- Create / Share (8) & Options (9) flanking touchpad -->
+                  <rect data-gp-btn="8" class="gp-part" x="196" y="88" width="14" height="28" rx="7" transform="rotate(-12 203 102)"/>
+                  <text data-gp-lbl="8" class="gp-part-lbl" x="180" y="100" style="font-size:8.5px; fill:var(--ink-3);">SHR</text>
+
+                  <rect data-gp-btn="9" class="gp-part" x="430" y="88" width="14" height="28" rx="7" transform="rotate(12 437 102)"/>
+                  <text data-gp-lbl="9" class="gp-part-lbl" x="460" y="100" style="font-size:8.5px; fill:var(--ink-3);">OPT</text>
+
+                  <!-- DualSense Sculpted D-Pad (Upper-Left: 12 Up, 13 Down, 14 Left, 15 Right) -->
+                  <path data-gp-btn="12" class="gp-part" d="M146 114 H166 V136 L156 146 L146 136 Z"/>
+                  <text data-gp-lbl="12" class="gp-part-lbl" x="156" y="127" style="font-size:9px;">▲</text>
+                  <path data-gp-btn="13" class="gp-part" d="M146 190 H166 V168 L156 158 L146 168 Z"/>
+                  <text data-gp-lbl="13" class="gp-part-lbl" x="156" y="177" style="font-size:9px;">▼</text>
+                  <path data-gp-btn="14" class="gp-part" d="M118 142 V162 H140 L150 152 L140 142 Z"/>
+                  <text data-gp-lbl="14" class="gp-part-lbl" x="131" y="152" style="font-size:9px;">◀</text>
+                  <path data-gp-btn="15" class="gp-part" d="M194 142 V162 H172 L162 152 L172 142 Z"/>
+                  <text data-gp-lbl="15" class="gp-part-lbl" x="181" y="152" style="font-size:9px;">▶</text>
+
+                  <!-- DualSense Face Buttons (△=3, □=2, ○=1, ✕=0) Upper-Right -->
+                  <circle data-gp-btn="3" class="gp-part gp-btn-green" cx="484" cy="122" r="16"/>
+                  <text data-gp-lbl="3" class="gp-part-lbl" x="484" y="122" style="font-size:13px;">△</text>
+
+                  <circle data-gp-btn="2" class="gp-part gp-btn-violet" cx="452" cy="152" r="16"/>
+                  <text data-gp-lbl="2" class="gp-part-lbl" x="452" y="152" style="font-size:13px;">□</text>
+
+                  <circle data-gp-btn="1" class="gp-part gp-btn-red" cx="516" cy="152" r="16"/>
+                  <text data-gp-lbl="1" class="gp-part-lbl" x="516" y="152" style="font-size:13px;">○</text>
+
+                  <circle data-gp-btn="0" class="gp-part gp-btn-blue" cx="484" cy="182" r="16"/>
+                  <text data-gp-lbl="0" class="gp-part-lbl" x="484" y="182" style="font-size:13px;">✕</text>
+
+                  <!-- Symmetric Lower-Center Analog Sticks (LS=10 & RS=11) -->
+                  <circle cx="236" cy="206" r="34" class="gp-stick-well"/>
+                  <g data-gp-stick="ls">
+                    <circle data-gp-btn="10" class="gp-part" cx="236" cy="206" r="23"/>
+                    <circle cx="236" cy="206" r="16" class="gp-stick-cap-inner"/>
+                    <text data-gp-lbl="10" class="gp-part-lbl" x="236" y="206" style="font-size:10px;">L3</text>
+                  </g>
+
+                  <circle cx="404" cy="206" r="34" class="gp-stick-well"/>
+                  <g data-gp-stick="rs">
+                    <circle data-gp-btn="11" class="gp-part" cx="404" cy="206" r="23"/>
+                    <circle cx="404" cy="206" r="16" class="gp-stick-cap-inner"/>
+                    <text data-gp-lbl="11" class="gp-part-lbl" x="404" y="206" style="font-size:10px;">R3</text>
+                  </g>
+
+                  <!-- Centered PS Home Button (16) between sticks -->
+                  <circle data-gp-btn="16" class="gp-part" cx="320" cy="204" r="15"/>
+                  <text data-gp-lbl="16" class="gp-part-lbl" x="320" y="204" style="font-size:10px;">PS</text>
+                </g>
+              </svg>
+
+              <div class="gp-visual-footer">
+                <div class="gp-legend-dots">
+                  <span><i class="gp-dot idle"></i>Não testado</span>
+                  <span><i class="gp-dot tested"></i>Testado</span>
+                  <span><i class="gp-dot pressed"></i>Pressionado agora</span>
+                </div>
+                <div>Último botão: <strong id="gp-last-btn-name" style="color:var(--lime);">--</strong></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SUB-TAB 4: MONITOR & ÁUDIO -->
+        <div id="sub-periph-display-audio" style="display:none;">
+          <div class="periph-grid-2">
+            <!-- Monitor Specs & Dead Pixel -->
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Monitor — Dead Pixel & Taxa de Atualização</div>
+                  <div class="card-subtitle">Verifique pixels queimados em tela cheia e a frequência real do painel</div>
+                </div>
+                <span class="badge badge-green" id="mon-hz-badge">Medindo Hz...</span>
+              </div>
+
+              <div class="kv-list" style="margin-top:0; margin-bottom:12px;">
+                <div><span>Resolução da Tela</span><strong id="mon-res-val">--</strong></div>
+                <div><span>Escala (DPI / Zoom)</span><strong id="mon-dpr-val">--</strong></div>
+                <div><span>Taxa Medida (RAF)</span><strong id="mon-hz-val" style="color:var(--lime);">-- Hz</strong></div>
+              </div>
+
+              <div style="font-size:12px; color:var(--ink-2); font-weight:700;">Abrir tela cheia de Dead / Stuck Pixel:</div>
+              <div class="pixel-swatches">
+                <button class="pixel-swatch-btn" onclick="startPixelTest(0)"><span class="pixel-dot" style="background:#ff0000;"></span>Vermelho</button>
+                <button class="pixel-swatch-btn" onclick="startPixelTest(1)"><span class="pixel-dot" style="background:#00ff00;"></span>Verde</button>
+                <button class="pixel-swatch-btn" onclick="startPixelTest(2)"><span class="pixel-dot" style="background:#0000ff;"></span>Azul</button>
+                <button class="pixel-swatch-btn" onclick="startPixelTest(3)"><span class="pixel-dot" style="background:#ffffff;"></span>Branco</button>
+                <button class="pixel-swatch-btn" onclick="startPixelTest(4)"><span class="pixel-dot" style="background:#000000;"></span>Preto</button>
+                <button class="pixel-swatch-btn" onclick="startPixelTest(5)"><span class="pixel-dot" style="background:#808080;"></span>Cinza 50%</button>
+              </div>
+            </div>
+
+            <!-- Áudio & Microfone -->
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Áudio Estéreo & Microfone</div>
+                  <div class="card-subtitle">Teste os lados L/R do fone/caixa de som e o nível de captação do microfone</div>
+                </div>
+              </div>
+
+              <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px;">
+                <button class="btn btn-secondary" onclick="playStereoTone(-1)">🔊 Canal Esquerdo (L)</button>
+                <button class="btn btn-secondary" onclick="playStereoTone(0)">🔊 Ambos (L + R)</button>
+                <button class="btn btn-secondary" onclick="playStereoTone(1)">🔊 Canal Direito (R)</button>
+              </div>
+
+              <div style="padding-top:12px; border-top:1px solid var(--line);">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px;">
+                  <div>
+                    <div style="font-size:13px; font-weight:700;">Medidor de Microfone</div>
+                    <div style="font-size:11.5px; color:var(--ink-2);" id="mic-status-text">Inativo — só acessa o microfone ao clicar em testar</div>
+                  </div>
+                  <button class="btn btn-sm btn-primary" id="btn-mic-toggle" onclick="toggleMicTest()">🎙️ Testar Microfone</button>
+                </div>
+                <div class="progress-bar" style="height:10px;"><div class="progress-fill" id="mic-level-bar" style="width:0%;"></div></div>
+                <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--ink-3); margin-top:6px;">
+                  <span>Nível atual: <strong id="mic-level-val" style="color:var(--ink);">0%</strong></span>
+                  <span>Pico: <strong id="mic-peak-val" style="color:var(--lime);">0%</strong></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Ghosting / Motion Blur Test -->
+          <div class="card">
+            <div class="card-header" style="flex-wrap:wrap; gap:10px;">
+              <div>
+                <div class="card-title">Teste de Ghosting & Motion Blur (Rastreamento Visual)</div>
+                <div class="card-subtitle">Acompanhe os blocos em movimento com os olhos para observar arrasto (smearing) ou overshoot</div>
+              </div>
+              <div class="seg">
+                <button class="seg-btn" onclick="setGhostingSpeed(480, this)">480 px/s</button>
+                <button class="seg-btn active" onclick="setGhostingSpeed(960, this)">960 px/s</button>
+                <button class="seg-btn" onclick="setGhostingSpeed(1440, this)">1440 px/s</button>
+              </div>
+            </div>
+            <div class="ghosting-canvas-wrap">
+              <canvas id="monitorGhostingCanvas"></canvas>
+            </div>
+          </div>
+        </div>
+      </section>
+
     </main>
   </div>
 
@@ -1321,12 +1943,18 @@
     </div>
   </div>
 
+  <!-- Fullscreen Dead Pixel Test Overlay -->
+  <div id="pixel-test-overlay" class="pixel-fullscreen-overlay" hidden onclick="nextPixelTestColor()">
+    <div id="pixel-test-hint" class="pixel-fullscreen-hint">Clique ou pressione Espaço/→ para trocar a cor · ESC para sair</div>
+  </div>
+
   <div id="toast-container"></div>
 
   <script defer src="/static/js/core.js"></script>
   <script defer src="/static/js/dashboard.js"></script>
   <script defer src="/static/js/cleaner.js"></script>
   <script defer src="/static/js/games.js"></script>
+  <script defer src="/static/js/peripherals.js"></script>
   <script defer src="/static/js/optimizer.js"></script>
   <script defer src="/static/js/manager.js"></script>
   <script defer src="/static/js/software_updater.js"></script>
